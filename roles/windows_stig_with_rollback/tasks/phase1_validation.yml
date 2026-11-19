@@ -1,0 +1,66 @@
+---
+# Phase 1: Pre-hardening validation for Windows Server
+
+- name: Verify target OS is Windows
+  ansible.builtin.assert:
+    that:
+      - ansible_os_family == "Windows"
+    fail_msg: "This role supports Windows Server targets only. Detected: {{ ansible_os_family | default('Unknown') }}"
+    success_msg: "Windows target detected ({{ ansible_distribution | default('Windows') }} {{ ansible_distribution_version | default('') }})"
+
+- name: Check domain membership and computer role via PowerShell
+  ansible.windows.win_shell: |
+    $cs = Get-CimInstance Win32_ComputerSystem
+    [PSCustomObject]@{
+      PartOfDomain = $cs.PartOfDomain
+      Domain       = $cs.Domain
+      DomainRole   = $cs.DomainRole
+    } | ConvertTo-Json -Compress
+  register: _win_domain_info_raw
+  changed_when: false
+
+- name: Parse Windows domain membership facts
+  ansible.builtin.set_fact:
+    windows_stig_with_rollback_domain_info: "{{ _win_domain_info_raw.stdout | from_json }}"
+
+- name: Warn if host is a Domain Controller (DomainRole 4 or 5)
+  ansible.builtin.debug:
+    msg:
+      - "⚠️  WARNING: {{ inventory_hostname }} is an Active Directory Domain Controller (DomainRole={{ windows_stig_with_rollback_domain_info.DomainRole }})."
+      - "Ensure Domain Controller STIG benchmarks are used rather than Member Server benchmarks."
+  when: (windows_stig_with_rollback_domain_info.DomainRole | int) in [4, 5]
+
+- name: Ensure working directories exist on Windows host
+  ansible.windows.win_file:
+    path: "{{ item }}"
+    state: directory
+  loop:
+    - "{{ windows_stig_with_rollback_backup_root }}"
+    - "{{ windows_stig_with_rollback_stig_audit_dir }}"
+    - "{{ windows_stig_with_rollback_stig_work_dir }}"
+
+- name: Verify DISA SCAP Compliance Checker (SCC) installation
+  ansible.windows.win_stat:
+    path: "{{ windows_stig_with_rollback_scc_executable }}"
+  register: _win_scc_stat
+
+- name: Warn if DISA SCC is not installed at configured path
+  ansible.builtin.debug:
+    msg:
+      - "⚠️  DISA SCC executable not found at: {{ windows_stig_with_rollback_scc_executable }}"
+      - "Automated XCCDF scanning in Phase 3/5 will be skipped unless SCC is installed."
+  when: not _win_scc_stat.stat.exists
+
+- name: Display hardening plan
+  ansible.builtin.debug:
+    msg:
+      - "========================================================================="
+      - "       WINDOWS SERVER DISA STIG HARDENING WITH NATIVE ANSIBLE"
+      - "========================================================================="
+      - "Target Host        : {{ inventory_hostname }}"
+      - "Windows OS         : {{ ansible_distribution | default('Windows Server') }} {{ ansible_distribution_version | default('') }}"
+      - "Domain Joined      : {{ windows_stig_with_rollback_domain_info.PartOfDomain }} ({{ windows_stig_with_rollback_domain_info.Domain }})"
+      - "Auto Backup        : {{ 'Enabled' if windows_stig_with_rollback_enable_auto_backup else 'Disabled' }}"
+      - "Auto Rollback      : {{ 'Enabled' if windows_stig_with_rollback_auto_rollback_on_failure else 'Disabled' }}"
+      - "Backup Location    : {{ windows_stig_with_rollback_backup_root }}\{{ windows_stig_with_rollback_backup_name }}.zip"
+      - "========================================================================="

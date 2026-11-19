@@ -1,0 +1,92 @@
+---
+# Phase 3: Baseline Windows STIG Audit (via DISA SCC + Native Ansible XML Parsing on Controller)
+
+- name: Normalize selected rules list
+  ansible.builtin.set_fact:
+    windows_stig_with_rollback_stig_rules_to_apply: >-
+      {%- set raw = windows_stig_with_rollback_stig_rules_to_apply | default([]) -%}
+      {%- if raw is string -%}
+        {{ raw.replace('
+', ',').split(',') | map('trim') | reject('equalto', '') | list }}
+      {%- elif raw is iterable -%}
+        {{ raw | map('trim') | reject('equalto', '') | list }}
+      {%- else -%}
+        []
+      {%- endif -%}
+
+- name: Determine if selective mode is active
+  ansible.builtin.set_fact:
+    windows_stig_with_rollback_selective_mode: "{{ (windows_stig_with_rollback_stig_rules_to_apply | length) > 0 }}"
+
+- name: Verify DISA SCC executable exists
+  ansible.windows.win_stat:
+    path: "{{ windows_stig_with_rollback_scc_executable }}"
+  register: _win_scc_check
+
+- name: Set default baseline score if SCC is unavailable
+  ansible.builtin.set_fact:
+    windows_stig_with_rollback_baseline_score: "0.0"
+  when: not _win_scc_check.stat.exists
+
+- name: Run DISA SCC baseline scan and parse natively on controller
+  when: _win_scc_check.stat.exists
+  block:
+    - name: Execute DISA SCC baseline scan
+      ansible.windows.win_command: >
+        "{{ windows_stig_with_rollback_scc_executable }}"
+        -u "{{ windows_stig_with_rollback_stig_audit_dir }}\baseline_{{ windows_stig_with_rollback_backup_timestamp }}"
+        -p "{{ windows_stig_with_rollback_stig_profile_id }}"
+        -q
+      register: _win_baseline_scan
+      failed_when: false
+      changed_when: false
+
+    - name: Locate baseline XCCDF XML file
+      ansible.windows.win_find:
+        paths: "{{ windows_stig_with_rollback_stig_audit_dir }}\baseline_{{ windows_stig_with_rollback_backup_timestamp }}"
+        patterns: "*XCCDF*.xml"
+        recurse: true
+      register: _win_baseline_xml_found
+
+    - name: Fetch baseline XCCDF XML to controller
+      ansible.builtin.fetch:
+        src: "{{ (_win_baseline_xml_found.files | sort(attribute='lastwritetime') | last).path }}"
+        dest: "/tmp/win_baseline_{{ inventory_hostname }}_{{ windows_stig_with_rollback_backup_timestamp }}.xml"
+        flat: true
+      when: _win_baseline_xml_found.matched > 0
+
+    - name: Parse baseline score natively on controller
+      ansible.builtin.include_tasks: parse_oscap_score.yml
+      vars:
+        oscap_xml_file: "/tmp/win_baseline_{{ inventory_hostname }}_{{ windows_stig_with_rollback_backup_timestamp }}.xml"
+      when: _win_baseline_xml_found.matched > 0
+
+    - name: Filter baseline results for selective mode natively on controller
+      ansible.builtin.include_tasks: filter_audit_results.yml
+      vars:
+        oscap_xml_file: "/tmp/win_baseline_{{ inventory_hostname }}_{{ windows_stig_with_rollback_backup_timestamp }}.xml"
+        stig_rules_to_filter: "{{ windows_stig_with_rollback_stig_rules_to_apply }}"
+      when:
+        - _win_baseline_xml_found.matched > 0
+        - windows_stig_with_rollback_selective_mode
+
+    - name: Store baseline score and failed rules
+      ansible.builtin.set_fact:
+        windows_stig_with_rollback_baseline_score: "{{ windows_stig_with_rollback_oscap_compliance_score | default('0.0') }}"
+        windows_stig_with_rollback_rules_to_remediate: >-
+          {{
+            (oscap_filtered_results.fail | default([]) | map('regex_replace', '^.*_rule_', '') | list)
+            if windows_stig_with_rollback_selective_mode
+            else []
+          }}
+
+    - name: Clean up temporary controller baseline XML
+      ansible.builtin.file:
+        path: "/tmp/win_baseline_{{ inventory_hostname }}_{{ windows_stig_with_rollback_backup_timestamp }}.xml"
+        state: absent
+      delegate_to: localhost
+      become: false
+
+- name: Display baseline compliance score
+  ansible.builtin.debug:
+    msg: "Baseline Windows STIG Compliance: {{ windows_stig_with_rollback_baseline_score | default('0.0') }}%"

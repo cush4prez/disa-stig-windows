@@ -1,0 +1,186 @@
+---
+# Query Windows STIG Status Playbook (100% Native Ansible - Zero Python Scripts)
+# Queries multiple comma-separated STIG IDs (e.g., V-254238, WN22-00-000010)
+# from the most recent DISA SCC XCCDF XML using community.general.xml on the controller.
+
+- name: Query Specific Windows STIG ID Status
+  hosts: all
+  gather_facts: false
+
+  vars_prompt:
+    - name: target_stig_ids
+      prompt: "Enter STIG IDs or Rule IDs to query (comma-separated, e.g., V-254238, WN22-00-000010)"
+      private: false
+
+  vars:
+    stig_audit_dir: 'C:\stig_audit'
+
+  tasks:
+    - name: Normalize requested STIG IDs list
+      ansible.builtin.set_fact:
+        _query_ids: >-
+          {{
+            target_stig_ids | default('') | string
+            | split(',') | map('trim') | reject('equalto', '') | list
+          }}
+
+    - name: Fail if no STIG IDs provided
+      ansible.builtin.fail:
+        msg: "No STIG IDs provided to query."
+      when: _query_ids | length == 0
+
+    - name: Find all XCCDF XML files on Windows host
+      ansible.windows.win_find:
+        paths: "{{ stig_audit_dir }}"
+        patterns: "*XCCDF*.xml"
+        recurse: true
+      register: found_xmls
+
+    - name: Fail if no XML files exist
+      ansible.builtin.fail:
+        msg: "No XCCDF XML files found in {{ stig_audit_dir }}. Please run an audit playbook first."
+      when: found_xmls.matched == 0
+
+    - name: Determine the latest XML file on target
+      ansible.builtin.set_fact:
+        latest_win_xml: "{{ (found_xmls.files | sort(attribute='lastwritetime') | last).path }}"
+
+    - name: Fetch latest XML file to controller
+      ansible.builtin.fetch:
+        src: "{{ latest_win_xml }}"
+        dest: "/tmp/win_query_{{ inventory_hostname }}.xml"
+        flat: true
+
+    - name: Read fetched XML file on controller
+      ansible.builtin.slurp:
+        src: "/tmp/win_query_{{ inventory_hostname }}.xml"
+      delegate_to: localhost
+      become: false
+      register: _query_xml_b64
+
+    - name: Extract Rule elements from XML
+      community.general.xml:
+        xmlstring: "{{ _query_xml_b64.content | b64decode }}"
+        xpath: "//*[local-name()='Rule']"
+        content: attribute
+      delegate_to: localhost
+      become: false
+      register: _xml_rules
+      failed_when: false
+
+    - name: Extract Rule titles from XML
+      community.general.xml:
+        xmlstring: "{{ _query_xml_b64.content | b64decode }}"
+        xpath: "//*[local-name()='Rule']/*[local-name()='title']"
+        content: text
+      delegate_to: localhost
+      become: false
+      register: _xml_titles
+      failed_when: false
+
+    - name: Extract Rule idents (V-IDs / WN-IDs) from XML
+      community.general.xml:
+        xmlstring: "{{ _query_xml_b64.content | b64decode }}"
+        xpath: "//*[local-name()='Rule']/*[local-name()='ident']"
+        content: text
+      delegate_to: localhost
+      become: false
+      register: _xml_idents
+      failed_when: false
+
+    - name: Extract rule-result attributes from XML
+      community.general.xml:
+        xmlstring: "{{ _query_xml_b64.content | b64decode }}"
+        xpath: "//*[local-name()='TestResult']/*[local-name()='rule-result']"
+        content: attribute
+      delegate_to: localhost
+      become: false
+      register: _xml_rr_attrs
+      failed_when: false
+
+    - name: Extract rule-result status text from XML
+      community.general.xml:
+        xmlstring: "{{ _query_xml_b64.content | b64decode }}"
+        xpath: "//*[local-name()='TestResult']/*[local-name()='rule-result']/*[local-name()='result']"
+        content: text
+      delegate_to: localhost
+      become: false
+      register: _xml_rr_results
+      failed_when: false
+
+    - name: Build native lookup maps and query results
+      ansible.builtin.set_fact:
+        stig_result_data: >-
+          {%- set status_by_rule = {} -%}
+          {%- set rr_attrs = _xml_rr_attrs.matches | default([]) -%}
+          {%- set rr_vals = _xml_rr_results.matches | default([]) -%}
+          {%- for idx in range(rr_attrs | length) -%}
+            {%- set r_id = (rr_attrs[idx].values() | list | first | default({})).get('idref', '') -%}
+            {%- set r_val =
+              ((rr_vals[idx].values() | list | first | default('NOT CHECKED'))
+              if idx < (rr_vals | length) else 'NOT CHECKED')
+              | string | trim | upper -%}
+            {%- if r_id != '' -%}
+              {%- set _ = status_by_rule.update({r_id: r_val}) -%}
+            {%- endif -%}
+          {%- endfor -%}
+
+          {%- set rules = _xml_rules.matches | default([]) -%}
+          {%- set titles = _xml_titles.matches | default([]) -%}
+          {%- set idents = _xml_idents.matches | default([]) -%}
+          {%- set out = [] -%}
+
+          {%- for q in _query_ids -%}
+            {%- set ns = namespace(found=false) -%}
+            {%- for idx in range(rules | length) -%}
+              {%- set r_attr = rules[idx].values() | list | first | default({}) -%}
+              {%- set full_rule_id = r_attr.get('id', '') -%}
+              {%- set short_rule_id = full_rule_id | regex_replace('^.*_rule_', '') -%}
+              {%- set title_txt = ((titles[idx].values() | list | first | default('Unknown')) if idx < (titles | length) else 'Unknown') | string | trim -%}
+              {%- set ident_txt = ((idents[idx].values() | list | first | default('')) if idx < (idents | length) else '') | string | trim -%}
+              {%- if q == ident_txt or q == short_rule_id or q == full_rule_id -%}
+                {%- set ns.found = true -%}
+                {%- set _ = out.append({
+                  'stig_id': q,
+                  'rule_id': short_rule_id,
+                  'title': title_txt,
+                  'status': status_by_rule.get(full_rule_id, 'NOT CHECKED')
+                }) -%}
+              {%- endif -%}
+            {%- endfor -%}
+            {%- if not ns.found -%}
+              {%- set _ = out.append({
+                'stig_id': q,
+                'rule_id': 'N/A',
+                'title': 'STIG / Rule ID not found in XML profile',
+                'status': 'NOT FOUND'
+              }) -%}
+            {%- endif -%}
+          {%- endfor -%}
+          {{ out }}
+
+    - name: Clean up temporary controller XML file
+      ansible.builtin.file:
+        path: "/tmp/win_query_{{ inventory_hostname }}.xml"
+        state: absent
+      delegate_to: localhost
+      become: false
+
+    - name: Display STIG Status Dashboard
+      ansible.builtin.debug:
+        msg: |
+          =========================================================================
+                         WINDOWS STIG QUERY RESULT: {{ inventory_hostname }}
+          =========================================================================
+          Target XML : {{ latest_win_xml }}
+
+          {% for item in stig_result_data %}
+          -------------------------------------------------------------------------
+          Query ID   : {{ item.stig_id }}
+          Rule ID    : {{ item.rule_id }}
+          Title      : {{ item.title }}
+          STATUS     : {% if item.status == 'PASS' %}✅ PASS{% elif item.status == 'FAIL' -%}
+          ❌ FAIL{% elif item.status == 'NOT FOUND' -%}
+          ⚠️ NOT FOUND{% else %}⏸️ {{ item.status }}{% endif %}
+          {% endfor %}
+          =========================================================================

@@ -1,0 +1,67 @@
+---
+# Phase 4: Apply Windows Server DISA STIG Remediations (100% Native Ansible)
+# Supports:
+#   1. Built-in native Windows STIG remediation tasks (tasks/remediate_windows_stig.yml)
+#   2. Optional external remediation role (e.g., ansible-lockdown Windows-2022-STIG / Windows-2025-STIG)
+#   3. Selective rule filtering & exclusions
+
+- name: Apply Windows STIG hardening
+  when: windows_stig_with_rollback_apply_remediations | bool
+  block:
+    - name: Normalize selected and excluded rules lists
+      ansible.builtin.set_fact:
+        _win_req_rules: >-
+          {%- set raw = windows_stig_with_rollback_stig_rules_to_apply | default([]) -%}
+          {%- if raw is string -%}
+            {{ raw.replace('
+', ',').split(',') | map('trim') | reject('equalto', '') | list }}
+          {%- else -%}
+            {{ raw | map('trim') | reject('equalto', '') | list }}
+          {%- endif -%}
+        _win_excl_rules: >-
+          {%- set raw = windows_stig_with_rollback_stig_rules_to_exclude | default([]) -%}
+          {%- if raw is string -%}
+            {{ raw.replace('
+', ',').split(',') | map('trim') | reject('equalto', '') | list }}
+          {%- else -%}
+            {{ raw | map('trim') | reject('equalto', '') | list }}
+          {%- endif -%}
+
+    - name: Display remediation mode
+      ansible.builtin.debug:
+        msg:
+          - "========================================================================="
+          - "{% if _win_req_rules | length > 0 %}SELECTIVE WINDOWS STIG REMEDIATION{% else %}FULL WINDOWS STIG REMEDIATION{% endif %}"
+          - "========================================================================="
+          - >-
+            {{ 'Applying ' ~ (_win_req_rules | length) ~ ' selected rules'
+               if (_win_req_rules | length > 0) else 'Applying full Windows Server STIG controls' }}
+          - "========================================================================="
+
+    - name: Include external Windows STIG remediation role if configured
+      ansible.builtin.include_role:
+        name: "{{ windows_stig_with_rollback_remediation_role }}"
+        apply:
+          ignore_errors: true
+      when: (windows_stig_with_rollback_remediation_role | default('') | trim | length) > 0
+
+    - name: Include built-in native Windows STIG remediation tasks
+      ansible.builtin.include_tasks:
+        file: remediate_windows_stig.yml
+        apply:
+          ignore_errors: true
+      when: (windows_stig_with_rollback_remediation_role | default('') | trim | length) == 0
+
+    - name: Force Group Policy refresh after remediation
+      ansible.windows.win_command: gpupdate /force
+      changed_when: true
+      failed_when: false
+
+    - name: Save remediation execution log on target
+      ansible.windows.win_copy:
+        dest: "{{ windows_stig_with_rollback_stig_work_dir }}\remediation_{{ windows_stig_with_rollback_backup_timestamp }}.log"
+        content: |
+          MODE: {% if _win_req_rules | length > 0 %}SELECTIVE{% else %}FULL{% endif %}
+          TIMESTAMP: {{ windows_stig_with_rollback_backup_timestamp }}
+          STATUS: COMPLETED
+          NOTE: Executed via 100% Native Ansible Windows modules (win_regedit, win_security_policy, win_user_right, win_audit_policy_system)

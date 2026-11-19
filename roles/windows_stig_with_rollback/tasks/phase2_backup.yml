@@ -1,0 +1,68 @@
+---
+# Phase 2: Create pre-hardening Windows system backup (Security Policy, Audit Policy, Registry, Firewall, Services)
+
+- name: Set Windows backup folder path
+  ansible.builtin.set_fact:
+    windows_stig_with_rollback_backup_dir: "{{ windows_stig_with_rollback_backup_root }}\backup_{{ windows_stig_with_rollback_backup_timestamp }}"
+    windows_stig_with_rollback_backup_archive: "{{ windows_stig_with_rollback_backup_root }}\{{ windows_stig_with_rollback_backup_name }}.zip"
+
+- name: Create backup directory
+  ansible.windows.win_file:
+    path: "{{ windows_stig_with_rollback_backup_dir }}"
+    state: directory
+
+- name: Export Local Security Policy (secedit), Audit Policy (auditpol), Registry Hives, Firewall, and Services
+  ansible.windows.win_shell: |
+    $ErrorActionPreference = "Continue"
+    $bdir = "{{ windows_stig_with_rollback_backup_dir }}"
+
+    # 1. Local Security Policy (User Rights, Password Policy, Security Options)
+    secedit.exe /export /cfg "$bdir\secpol.inf" /quiet
+
+    # 2. Advanced Audit Policy
+    auditpol.exe /backup /file:"$bdiruditpol.csv"
+
+    # 3. Critical Registry Hives (HKLM\SOFTWARE, HKLM\SYSTEM, HKLM\SECURITY)
+    reg.exe export "HKLM\SOFTWARE\Policies" "$bdireg_policies.reg" /y 2>$null
+    reg.exe export "HKLM\SYSTEM\CurrentControlSet\Control\Lsa" "$bdireg_lsa.reg" /y 2>$null
+    reg.exe export "HKLM\SYSTEM\CurrentControlSet\Services\LanmanServer\Parameters" "$bdireg_lanmanserver.reg" /y 2>$null
+    reg.exe export "HKLM\SYSTEM\CurrentControlSet\Services\LanmanWorkstation\Parameters" "$bdireg_lanmanworkstation.reg" /y 2>$null
+    reg.exe export "HKLM\SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL" "$bdireg_schannel.reg" /y 2>$null
+    reg.exe export "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies" "$bdireg_win_policies.reg" /y 2>$null
+
+    # 4. Windows Defender Firewall configuration
+    netsh.exe advfirewall export "$bdirirewall.wfw"
+
+    # 5. Services baseline state
+    Get-Service | Select-Object Name, DisplayName, Status, StartType | ConvertTo-Json -Depth 2 | Out-File -FilePath "$bdir\services.json" -Encoding utf8
+
+    # 6. Metadata
+    @{
+      backup_name = "{{ windows_stig_with_rollback_backup_name }}"
+      created     = (Get-Date -Format "o")
+      hostname    = $env:COMPUTERNAME
+      os_version  = (Get-CimInstance Win32_OperatingSystem).Caption
+    } | ConvertTo-Json | Out-File -FilePath "$bdir\metadata.json" -Encoding utf8
+  changed_when: true
+
+- name: Compress Windows backup directory into ZIP archive
+  community.windows.win_zip:
+    src: "{{ windows_stig_with_rollback_backup_dir }}"
+    dest: "{{ windows_stig_with_rollback_backup_archive }}"
+
+- name: Fetch Windows backup archive to AAP controller for disaster recovery
+  ansible.builtin.fetch:
+    src: "{{ windows_stig_with_rollback_backup_archive }}"
+    dest: "{{ windows_stig_with_rollback_controller_backup_dir }}/{{ inventory_hostname }}/{{ windows_stig_with_rollback_backup_name }}.zip"
+    flat: true
+  when: windows_stig_with_rollback_fetch_to_controller | bool
+  failed_when: false
+
+- name: Display backup confirmation
+  ansible.builtin.debug:
+    msg:
+      - "✓ Pre-hardening Windows backup created: {{ windows_stig_with_rollback_backup_archive }}"
+      - >-
+        {% if windows_stig_with_rollback_fetch_to_controller | bool %}
+        ✓ Backup copied to AAP controller: {{ windows_stig_with_rollback_controller_backup_dir }}/{{ inventory_hostname }}/
+        {% endif %}

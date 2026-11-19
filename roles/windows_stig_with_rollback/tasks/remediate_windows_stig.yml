@@ -1,0 +1,156 @@
+---
+# Native Ansible Windows Server DISA STIG Remediation Controls
+# Uses ansible.windows and community.windows modules (no Python scripts required).
+# Expand this file with additional V-ID / WN22-ID controls or plug in an external role via
+# `windows_stig_with_rollback_remediation_role`.
+
+- name: "[V-254239 / WN22-AC-000010] Enforce account lockout duration (15 minutes or greater)"
+  community.windows.win_security_policy:
+    section: System Access
+    key: LockoutDuration
+    value: "{{ win_lockout_duration | default(15) }}"
+  when:
+    - (_win_req_rules | length == 0) or ('V-254239' in _win_req_rules) or ('WN22-AC-000010' in _win_req_rules)
+    - ('V-254239' not in _win_excl_rules) and ('WN22-AC-000010' not in _win_excl_rules)
+
+- name: "[V-254240 / WN22-AC-000020] Enforce account lockout threshold (3 invalid logon attempts)"
+  community.windows.win_security_policy:
+    section: System Access
+    key: LockoutBadCount
+    value: "{{ win_lockout_bad_count | default(3) }}"
+  when:
+    - (_win_req_rules | length == 0) or ('V-254240' in _win_req_rules) or ('WN22-AC-000020' in _win_req_rules)
+    - ('V-254240' not in _win_excl_rules) and ('WN22-AC-000020' not in _win_excl_rules)
+
+- name: "[V-254241 / WN22-AC-000030] Enforce reset account lockout counter after 15 minutes"
+  community.windows.win_security_policy:
+    section: System Access
+    key: ResetLockoutCount
+    value: "{{ win_reset_lockout_count | default(15) }}"
+  when:
+    - (_win_req_rules | length == 0) or ('V-254241' in _win_req_rules) or ('WN22-AC-000030' in _win_req_rules)
+    - ('V-254241' not in _win_excl_rules) and ('WN22-AC-000030' not in _win_excl_rules)
+
+- name: "[V-254242 / WN22-AC-000040] Enforce password history (24 passwords remembered)"
+  community.windows.win_security_policy:
+    section: System Access
+    key: PasswordHistorySize
+    value: "{{ win_password_history_size | default(24) }}"
+  when:
+    - (_win_req_rules | length == 0) or ('V-254242' in _win_req_rules) or ('WN22-AC-000040' in _win_req_rules)
+    - ('V-254242' not in _win_excl_rules) and ('WN22-AC-000040' not in _win_excl_rules)
+
+- name: "[V-254243 / WN22-AC-000050] Enforce maximum password age (60 days)"
+  community.windows.win_security_policy:
+    section: System Access
+    key: MaximumPasswordAge
+    value: "{{ win_maximum_password_age | default(60) }}"
+  when:
+    - (_win_req_rules | length == 0) or ('V-254243' in _win_req_rules) or ('WN22-AC-000050' in _win_req_rules)
+    - ('V-254243' not in _win_excl_rules) and ('WN22-AC-000050' not in _win_excl_rules)
+
+- name: "[V-254244 / WN22-AC-000060] Enforce minimum password age (1 day)"
+  community.windows.win_security_policy:
+    section: System Access
+    key: MinimumPasswordAge
+    value: "{{ win_minimum_password_age | default(1) }}"
+  when:
+    - (_win_req_rules | length == 0) or ('V-254244' in _win_req_rules) or ('WN22-AC-000060' in _win_req_rules)
+    - ('V-254244' not in _win_excl_rules) and ('WN22-AC-000060' not in _win_excl_rules)
+
+- name: "[V-254245 / WN22-AC-000070] Enforce minimum password length (14 characters)"
+  community.windows.win_security_policy:
+    section: System Access
+    key: MinimumPasswordLength
+    value: "{{ win_minimum_password_length | default(14) }}"
+  when:
+    - (_win_req_rules | length == 0) or ('V-254245' in _win_req_rules) or ('WN22-AC-000070' in _win_req_rules)
+    - ('V-254245' not in _win_excl_rules) and ('WN22-AC-000070' not in _win_excl_rules)
+
+- name: "[V-254246 / WN22-AC-000080] Enforce password complexity requirements"
+  community.windows.win_security_policy:
+    section: System Access
+    key: PasswordComplexity
+    value: 1
+  when:
+    - (_win_req_rules | length == 0) or ('V-254246' in _win_req_rules) or ('WN22-AC-000080' in _win_req_rules)
+    - ('V-254246' not in _win_excl_rules) and ('WN22-AC-000080' not in _win_excl_rules)
+
+- name: "[V-254338 / WN22-CC-000180] Disable SMBv1 protocol on SMB server"
+  ansible.windows.win_regedit:
+    path: HKLM:\SYSTEM\CurrentControlSet\Services\LanmanServer\Parameters
+    name: SMB1
+    data: 0
+    type: dword
+  when:
+    - (_win_req_rules | length == 0) or ('V-254338' in _win_req_rules) or ('WN22-CC-000180' in _win_req_rules)
+    - ('V-254338' not in _win_excl_rules) and ('WN22-CC-000180' not in _win_excl_rules)
+
+- name: "[V-254443 / WN22-SO-000130] Require SMB server packet signing always"
+  ansible.windows.win_regedit:
+    path: HKLM:\SYSTEM\CurrentControlSet\Services\LanmanServer\Parameters
+    name: RequireSecuritySignature
+    data: 1
+    type: dword
+  when:
+    - (_win_req_rules | length == 0) or ('V-254443' in _win_req_rules) or ('WN22-SO-000130' in _win_req_rules)
+    - ('V-254443' not in _win_excl_rules) and ('WN22-SO-000130' not in _win_excl_rules)
+
+- name: "[V-254444 / WN22-SO-000110] Require SMB client packet signing always"
+  ansible.windows.win_regedit:
+    path: HKLM:\SYSTEM\CurrentControlSet\Services\LanmanWorkstation\Parameters
+    name: RequireSecuritySignature
+    data: 1
+    type: dword
+  when:
+    - (_win_req_rules | length == 0) or ('V-254444' in _win_req_rules) or ('WN22-SO-000110' in _win_req_rules)
+    - ('V-254444' not in _win_excl_rules) and ('WN22-SO-000110' not in _win_excl_rules)
+
+- name: "[V-254454 / WN22-SO-000240] Enforce NTLMv2 response only and refuse LM and NTLM"
+  ansible.windows.win_regedit:
+    path: HKLM:\SYSTEM\CurrentControlSet\Control\Lsa
+    name: LmCompatibilityLevel
+    data: 5
+    type: dword
+  when:
+    - (_win_req_rules | length == 0) or ('V-254454' in _win_req_rules) or ('WN22-SO-000240' in _win_req_rules)
+    - ('V-254454' not in _win_excl_rules) and ('WN22-SO-000240' not in _win_excl_rules)
+
+- name: "[V-254471 / WN22-SO-000330] Enable User Account Control (UAC) Admin Approval Mode"
+  ansible.windows.win_regedit:
+    path: HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System
+    name: EnableLUA
+    data: 1
+    type: dword
+  when:
+    - (_win_req_rules | length == 0) or ('V-254471' in _win_req_rules) or ('WN22-SO-000330' in _win_req_rules)
+    - ('V-254471' not in _win_excl_rules) and ('WN22-SO-000330' not in _win_excl_rules)
+
+- name: "[V-254434 / WN22-SO-000070] Configure DoD Interactive Logon Banner Title"
+  ansible.windows.win_regedit:
+    path: HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System
+    name: legalnoticecaption
+    data: "{{ win_legal_notice_caption | default('DoD Notice and Consent Banner') }}"
+    type: string
+  when:
+    - (_win_req_rules | length == 0) or ('V-254434' in _win_req_rules) or ('WN22-SO-000070' in _win_req_rules)
+    - ('V-254434' not in _win_excl_rules) and ('WN22-SO-000070' not in _win_excl_rules)
+
+- name: "[V-254433 / WN22-SO-000060] Configure DoD Interactive Logon Banner Text"
+  ansible.windows.win_regedit:
+    path: HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System
+    name: legalnoticetext
+    data: >-
+      {{ win_legal_notice_text | default('You are accessing a U.S. Government (USG) Information System (IS) that is provided for USG-authorized use only.') }}
+    type: string
+  when:
+    - (_win_req_rules | length == 0) or ('V-254433' in _win_req_rules) or ('WN22-SO-000060' in _win_req_rules)
+    - ('V-254433' not in _win_excl_rules) and ('WN22-SO-000060' not in _win_excl_rules)
+
+- name: "[V-254275 / WN22-AU-000070] Audit Logon Success and Failure"
+  community.windows.win_audit_policy_system:
+    subcategory: Logon
+    audit_type: success, failure
+  when:
+    - (_win_req_rules | length == 0) or ('V-254275' in _win_req_rules) or ('WN22-AU-000070' in _win_req_rules)
+    - ('V-254275' not in _win_excl_rules) and ('WN22-AU-000070' not in _win_excl_rules)

@@ -1,0 +1,111 @@
+---
+# Parse XCCDF failures and categorize by severity (CAT I/II/III) natively on controller
+
+- name: Initialize failures tracking
+  ansible.builtin.set_fact:
+    windows_stig_with_rollback_oscap_failures:
+      cat1: []
+      cat2: []
+      cat3: []
+      pass_count: 0
+      fail_count: 0
+      compliance: 0.0
+
+- name: Read XCCDF XML file on controller
+  ansible.builtin.slurp:
+    src: "{{ oscap_xml_file }}"
+  delegate_to: localhost
+  become: false
+  register: _win_fail_xml_b64
+
+- name: Extract Rule elements from Benchmark
+  community.general.xml:
+    xmlstring: "{{ _win_fail_xml_b64.content | b64decode }}"
+    xpath: "//*[local-name()='Rule']"
+    content: attribute
+  delegate_to: localhost
+  become: false
+  register: _win_rules_xml
+  failed_when: false
+
+- name: Extract Rule titles
+  community.general.xml:
+    xmlstring: "{{ _win_fail_xml_b64.content | b64decode }}"
+    xpath: "//*[local-name()='Rule']/*[local-name()='title']"
+    content: text
+  delegate_to: localhost
+  become: false
+  register: _win_titles_xml
+  failed_when: false
+
+- name: Extract test result attributes and statuses
+  community.general.xml:
+    xmlstring: "{{ _win_fail_xml_b64.content | b64decode }}"
+    xpath: "//*[local-name()='rule-result']"
+    content: attribute
+  delegate_to: localhost
+  become: false
+  register: _win_rr_attrs_xml
+  failed_when: false
+
+- name: Extract test result status text
+  community.general.xml:
+    xmlstring: "{{ _win_fail_xml_b64.content | b64decode }}"
+    xpath: "//*[local-name()='rule-result']/*[local-name()='result']"
+    content: text
+  delegate_to: localhost
+  become: false
+  register: _win_rr_vals_xml
+  failed_when: false
+
+- name: Categorize failures into CAT I, CAT II, and CAT III
+  ansible.builtin.set_fact:
+    windows_stig_with_rollback_oscap_failures: >-
+      {%- set meta = {} -%}
+      {%- set rules = _win_rules_xml.matches | default([]) -%}
+      {%- set titles = _win_titles_xml.matches | default([]) -%}
+      {%- for idx in range(rules | length) -%}
+        {%- set r_attr = rules[idx].values() | list | first | default({}) -%}
+        {%- set rid = r_attr.get('id', '') -%}
+        {%- set sev = r_attr.get('severity', 'medium') | lower -%}
+        {%- set t_val = ((titles[idx].values() | list | first | default(rid)) if idx < (titles | length) else rid) | string | trim -%}
+        {%- if rid != '' -%}
+          {%- set _ = meta.update({rid: {'short_id': rid | regex_replace('^.*_rule_', ''), 'severity': sev, 'title': t_val}}) -%}
+        {%- endif -%}
+      {%- endfor -%}
+
+      {%- set cat1 = [] -%}
+      {%- set cat2 = [] -%}
+      {%- set cat3 = [] -%}
+      {%- set ns = namespace(pass_c=0, fail_c=0) -%}
+      {%- set rr_attrs = _win_rr_attrs_xml.matches | default([]) -%}
+      {%- set rr_vals = _win_rr_vals_xml.matches | default([]) -%}
+      {%- for idx in range(rr_attrs | length) -%}
+        {%- set idref = (rr_attrs[idx].values() | list | first | default({})).get('idref', '') -%}
+        {%- set res = ((rr_vals[idx].values() | list | first | default('')) if idx < (rr_vals | length) else '') | string | trim | lower -%}
+        {%- if res == 'pass' -%}
+          {%- set ns.pass_c = ns.pass_c + 1 -%}
+        {%- elif res == 'fail' -%}
+          {%- set ns.fail_c = ns.fail_c + 1 -%}
+          {%- set info = meta.get(idref, {'short_id': idref | regex_replace('^.*_rule_', ''), 'severity': 'medium', 'title': idref}) -%}
+          {%- set item = {'id': info.short_id, 'stig_id': info.short_id, 'title': info.title, 'severity': info.severity} -%}
+          {%- if info.severity == 'high' -%}
+            {%- set _ = cat1.append(item) -%}
+          {%- elif info.severity == 'low' -%}
+            {%- set _ = cat3.append(item) -%}
+          {%- else -%}
+            {%- set _ = cat2.append(item) -%}
+          {%- endif -%}
+        {%- endif -%}
+      {%- endfor -%}
+      {%- set tot = ns.pass_c + ns.fail_c -%}
+      {{
+        {
+          'cat1': cat1,
+          'cat2': cat2,
+          'cat3': cat3,
+          'pass_count': ns.pass_c,
+          'fail_count': ns.fail_c,
+          'compliance': ((ns.pass_c / tot * 100) | round(2)) if tot > 0 else 0.0
+        }
+      }}

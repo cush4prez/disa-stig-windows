@@ -1,0 +1,81 @@
+---
+# Phase 5: Post-hardening Windows operational verification, auto-rollback check, and post-audit
+
+- name: Run Windows operational checks
+  ansible.builtin.include_tasks: verify_operational.yml
+
+- name: Display operational verdict
+  ansible.builtin.debug:
+    msg:
+      - "========================================================================="
+      - "{% if windows_stig_with_rollback_system_is_operable %}✅ WINDOWS SYSTEM IS OPERATIONAL{% else %}❌ WINDOWS SYSTEM IS INOPERABLE{% endif %}"
+      - "========================================================================="
+
+- name: Trigger automatic rollback if Windows system is inoperable
+  when:
+    - not (windows_stig_with_rollback_system_is_operable | bool)
+    - windows_stig_with_rollback_auto_rollback_on_failure | bool
+    - windows_stig_with_rollback_enable_auto_backup | bool
+  block:
+    - name: Display emergency rollback notice
+      ansible.builtin.debug:
+        msg: "⚠️  Operational checks failed ({{ windows_stig_with_rollback_operational_failures | join(', ') }}). Initiating Windows rollback..."
+
+    - name: Execute Windows rollback tasks
+      ansible.builtin.include_tasks: rollback.yml
+
+- name: Run post-hardening DISA SCC scan if SCC is installed
+  ansible.windows.win_stat:
+    path: "{{ windows_stig_with_rollback_scc_executable }}"
+  register: _win_post_scc_stat
+
+- name: Set default post-hardening score if SCC unavailable
+  ansible.builtin.set_fact:
+    windows_stig_with_rollback_post_score: "{{ windows_stig_with_rollback_baseline_score | default('0.0') }}"
+  when: not _win_post_scc_stat.stat.exists or not (windows_stig_with_rollback_apply_remediations | bool)
+
+- name: Execute post-hardening DISA SCC scan and parse natively
+  when:
+    - _win_post_scc_stat.stat.exists
+    - windows_stig_with_rollback_apply_remediations | bool
+  block:
+    - name: Execute DISA SCC post-hardening scan
+      ansible.windows.win_command: >
+        "{{ windows_stig_with_rollback_scc_executable }}"
+        -u "{{ windows_stig_with_rollback_stig_audit_dir }}\post_{{ windows_stig_with_rollback_backup_timestamp }}"
+        -p "{{ windows_stig_with_rollback_stig_profile_id }}"
+        -q
+      register: _win_post_scan
+      failed_when: false
+      changed_when: false
+
+    - name: Locate post-hardening XCCDF XML file
+      ansible.windows.win_find:
+        paths: "{{ windows_stig_with_rollback_stig_audit_dir }}\post_{{ windows_stig_with_rollback_backup_timestamp }}"
+        patterns: "*XCCDF*.xml"
+        recurse: true
+      register: _win_post_xml_found
+
+    - name: Fetch post-hardening XCCDF XML to controller
+      ansible.builtin.fetch:
+        src: "{{ (_win_post_xml_found.files | sort(attribute='lastwritetime') | last).path }}"
+        dest: "/tmp/win_post_{{ inventory_hostname }}_{{ windows_stig_with_rollback_backup_timestamp }}.xml"
+        flat: true
+      when: _win_post_xml_found.matched > 0
+
+    - name: Parse post-hardening score natively on controller
+      ansible.builtin.include_tasks: parse_oscap_score.yml
+      vars:
+        oscap_xml_file: "/tmp/win_post_{{ inventory_hostname }}_{{ windows_stig_with_rollback_backup_timestamp }}.xml"
+      when: _win_post_xml_found.matched > 0
+
+    - name: Store post-hardening score
+      ansible.builtin.set_fact:
+        windows_stig_with_rollback_post_score: "{{ windows_stig_with_rollback_oscap_compliance_score | default('0.0') }}"
+
+    - name: Clean up temporary controller post-hardening XML
+      ansible.builtin.file:
+        path: "/tmp/win_post_{{ inventory_hostname }}_{{ windows_stig_with_rollback_backup_timestamp }}.xml"
+        state: absent
+      delegate_to: localhost
+      become: false

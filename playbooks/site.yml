@@ -1,0 +1,16 @@
+---
+- name: Apply Windows Server DISA STIG Hardening with Rollback Protection
+  hosts: all
+  gather_facts: true
+
+  pre_tasks:
+    - name: Convert survey inputs to role variables (AAP 2.7)
+      ansible.builtin.set_fact:
+        windows_stig_with_rollback_stig_rules_to_apply: >-
+          {{ stig_rules_input.replace('\n', ',').split(',') | map('trim') | reject('equalto', '') | list }}
+      when:
+        - stig_rules_input is defined
+        - stig_rules_input | string | trim | length > 0
+
+  roles:
+    - role: windows_stig_with_rollback

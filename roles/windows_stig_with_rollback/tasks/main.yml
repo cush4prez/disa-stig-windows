@@ -1,0 +1,44 @@
+---
+# Main orchestrator for windows_stig_with_rollback role
+
+- name: Load organization tailoring variables
+  ansible.builtin.include_tasks: load_tailoring.yml
+  tags:
+    - always
+    - tailoring
+
+- name: Phase 1 - Pre-hardening validation
+  ansible.builtin.include_tasks: phase1_validation.yml
+  tags:
+    - always
+    - validation
+
+- name: Phase 2 - Create pre-hardening backup (Registry, secedit, LGPO, firewall)
+  ansible.builtin.include_tasks: phase2_backup.yml
+  when: windows_stig_with_rollback_enable_auto_backup | bool
+  tags:
+    - backup
+
+- name: Phase 3 - Baseline STIG audit
+  ansible.builtin.include_tasks: phase3_baseline_audit.yml
+  tags:
+    - audit
+    - baseline
+
+- name: Phase 4 - Apply Windows STIG remediations
+  ansible.builtin.include_tasks: phase4_remediation.yml
+  when: windows_stig_with_rollback_apply_remediations | bool
+  tags:
+    - remediation
+
+- name: Phase 5 - Post-hardening verification & auto-rollback check
+  ansible.builtin.include_tasks: phase5_verification.yml
+  tags:
+    - verification
+    - operational-check
+
+- name: Phase 6 - Final summary and rollback instructions
+  ansible.builtin.include_tasks: phase6_summary.yml
+  tags:
+    - summary
+    - report

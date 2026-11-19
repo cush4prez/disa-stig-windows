@@ -1,0 +1,211 @@
+---
+# Final Windows Server STIG Audit Report (100% Native Ansible - Zero Python Scripts)
+# Runs system operational verification and detailed compliance audit using DISA SCC / Evaluate-STIG XCCDF XML
+# Shows compliance score and failed controls by category (CAT I, II, III)
+
+- name: Windows Server DISA STIG Final Audit Report
+  hosts: all
+  gather_facts: true
+
+  vars:
+    stig_work_dir: 'C:\stig_work'
+    stig_audit_dir: 'C:\stig_audit'
+    scc_executable: 'C:\Program Files\SCAP Compliance Checker 5.9\cscc.exe'
+    stig_profile_id: "MAC-1_Classified"
+
+  tasks:
+    #########################################################################
+    # PHASE 1: SYSTEM OPERATIONAL VERIFICATION
+    #########################################################################
+
+    - name: Run native Windows operational verification tasks
+      ansible.builtin.include_tasks: "{{ playbook_dir }}/../roles/windows_stig_with_rollback/tasks/verify_operational.yml"
+
+    - name: Map role operational facts to report variables
+      ansible.builtin.set_fact:
+        system_is_operable: "{{ windows_stig_with_rollback_system_is_operable | default(true) }}"
+        operational_failures: "{{ windows_stig_with_rollback_operational_failures | default([]) }}"
+
+    #########################################################################
+    # PHASE 2: COMPLIANCE AUDIT (DISA SCC)
+    #########################################################################
+
+    - name: Create STIG directories
+      ansible.windows.win_file:
+        path: "{{ item }}"
+        state: directory
+      loop:
+        - "{{ stig_audit_dir }}"
+        - "{{ stig_work_dir }}"
+
+    - name: Set audit timestamp
+      ansible.builtin.set_fact:
+        audit_timestamp: "{{ ansible_date_time.epoch }}"
+
+    - name: Verify DISA SCAP Compliance Checker (SCC) exists
+      ansible.windows.win_stat:
+        path: "{{ scc_executable }}"
+      register: scc_stat
+
+    - name: Fail if DISA SCC is not installed
+      ansible.builtin.fail:
+        msg: "DISA SCC not found at {{ scc_executable }}. Install SCC or update scc_executable path."
+      when: not scc_stat.stat.exists
+
+    - name: Run comprehensive Windows STIG audit via DISA SCC
+      ansible.windows.win_command: >
+        "{{ scc_executable }}"
+        -u "{{ stig_audit_dir }}\scc_{{ audit_timestamp }}"
+        -p "{{ stig_profile_id }}"
+        -q
+      register: audit_scan
+      failed_when: false
+      changed_when: false
+
+    - name: Locate generated XCCDF XML results file
+      ansible.windows.win_find:
+        paths: "{{ stig_audit_dir }}\scc_{{ audit_timestamp }}"
+        patterns: "*XCCDF*.xml"
+        recurse: true
+      register: found_xccdf_xml
+
+    - name: Fail if audit did not generate XCCDF results XML
+      ansible.builtin.fail:
+        msg: "DISA SCC audit failed to generate XCCDF results XML under {{ stig_audit_dir }}\scc_{{ audit_timestamp }}"
+      when: found_xccdf_xml.matched == 0
+
+    - name: Fetch XCCDF XML to controller for native parsing
+      ansible.builtin.fetch:
+        src: "{{ (found_xccdf_xml.files | sort(attribute='lastwritetime') | last).path }}"
+        dest: "/tmp/win_final_audit_{{ inventory_hostname }}_{{ audit_timestamp }}.xml"
+        flat: true
+
+    #########################################################################
+    # PHASE 3: PARSE RESULTS & COMPLIANCE SCORE (100% NATIVE ANSIBLE)
+    #########################################################################
+
+    - name: Parse compliance score with native Ansible
+      ansible.builtin.include_tasks: "{{ playbook_dir }}/../roles/windows_stig_with_rollback/tasks/parse_oscap_score.yml"
+      vars:
+        oscap_xml_file: "/tmp/win_final_audit_{{ inventory_hostname }}_{{ audit_timestamp }}.xml"
+
+    - name: Parse failures by category with native Ansible
+      ansible.builtin.include_tasks: "{{ playbook_dir }}/../roles/windows_stig_with_rollback/tasks/parse_oscap_failures.yml"
+      vars:
+        oscap_xml_file: "/tmp/win_final_audit_{{ inventory_hostname }}_{{ audit_timestamp }}.xml"
+
+    - name: Clean up temporary controller XML file
+      ansible.builtin.file:
+        path: "/tmp/win_final_audit_{{ inventory_hostname }}_{{ audit_timestamp }}.xml"
+        state: absent
+      delegate_to: localhost
+      become: false
+
+    - name: Map native parsed facts to report variables
+      ansible.builtin.set_fact:
+        compliance_score_val: "{{ windows_stig_with_rollback_oscap_compliance_score | default('0.0') }}"
+        failures_data: "{{ windows_stig_with_rollback_oscap_failures }}"
+
+    - name: Assess compliance level
+      ansible.builtin.set_fact:
+        compliance_level: >-
+          {%- if compliance_score_val | float >= 95 -%}EXCELLENT
+          {%- elif compliance_score_val | float >= 90 -%}VERY GOOD
+          {%- elif compliance_score_val | float >= 80 -%}GOOD
+          {%- elif compliance_score_val | float >= 70 -%}ACCEPTABLE
+          {%- elif compliance_score_val | float >= 50 -%}NEEDS IMPROVEMENT
+          {%- else -%}CRITICAL
+          {%- endif -%}
+
+    - name: Determine if production ready
+      ansible.builtin.set_fact:
+        production_ready: >-
+          {{ system_is_operable and
+             (failures_data.cat1 | length == 0) and
+             (compliance_score_val | float >= 80) }}
+
+    #########################################################################
+    # PHASE 4: EXECUTIVE CONSOLE DASHBOARD
+    #########################################################################
+
+    - name: Display Clean Executive Dashboard
+      ansible.builtin.debug:
+        msg: |
+          =========================================================================
+                    WINDOWS DISA STIG FINAL AUDIT REPORT: {{ inventory_hostname }}
+          =========================================================================
+          Windows OS             : {{ ansible_distribution | default('Windows Server') }} ({{ ansible_distribution_version | default('') }})
+          Audit Date             : {{ ansible_date_time.iso8601 }}
+
+          -------------------------------------------------------------------------
+                                 SYSTEM OPERATIONAL STATUS
+          -------------------------------------------------------------------------
+          Status                 : {% if system_is_operable %}✅ OPERATIONAL{% else %}❌ CRITICAL FAILURES DETECTED{% endif %}
+          {% if operational_failures | length > 0 %}
+          Failures               :
+          {% for failure in operational_failures %}
+                                   ❌ {{ failure }}
+          {% endfor %}
+          {% endif %}
+
+          -------------------------------------------------------------------------
+                                    COMPLIANCE OVERVIEW
+          -------------------------------------------------------------------------
+          Compliance Score       : {{ compliance_score_val }}% ({{ compliance_level }})
+          Production Ready       : {% if production_ready %}✅ YES{% else %}❌ NO{% endif %}
+
+          Total Checked          : {{ failures_data.pass_count + failures_data.fail_count }}
+          Rules Passed           : {{ failures_data.pass_count }}
+          Rules Failed           : {{ failures_data.fail_count }}
+
+          -------------------------------------------------------------------------
+                               FAILURE BREAKDOWN BY SEVERITY
+          -------------------------------------------------------------------------
+          CAT I (High)           : {{ failures_data.cat1 | length }} critical findings
+          CAT II (Medium)        : {{ failures_data.cat2 | length }} findings
+          CAT III (Low)          : {{ failures_data.cat3 | length }} findings
+
+          {% if failures_data.cat1 | length > 0 %}
+          -------------------------------------------------------------------------
+                                CAT I FAILURES (MUST FIX)
+          -------------------------------------------------------------------------
+          {% for item in failures_data.cat1 %}
+          {{ loop.index }}. [STIG: {{ item.stig_id | default('N/A') }}] {{ item.title }}
+             Rule: {{ item.id }}
+          {% endfor %}
+          {% endif %}
+
+          {% if failures_data.cat2 | length > 0 %}
+          -------------------------------------------------------------------------
+                         CAT II FAILURES (Showing first 20 of {{ failures_data.cat2 | length }})
+          -------------------------------------------------------------------------
+          {% for item in (failures_data.cat2 | default([]))[:20] %}
+          {{ loop.index }}. [STIG: {{ item.stig_id | default('N/A') }}] {{ item.title }}
+             Rule: {{ item.id }}
+          {% endfor %}
+          {% if failures_data.cat2 | length > 20 %}
+          ... and {{ failures_data.cat2 | length - 20 }} more CAT II findings.
+          {% endif %}
+          {% endif %}
+
+          {% if failures_data.cat3 | length > 0 %}
+          -------------------------------------------------------------------------
+                         CAT III FAILURES (Showing first 10 of {{ failures_data.cat3 | length }})
+          -------------------------------------------------------------------------
+          {% for item in (failures_data.cat3 | default([]))[:10] %}
+          {{ loop.index }}. [STIG: {{ item.stig_id | default('N/A') }}] {{ item.title }}
+             Rule: {{ item.id }}
+          {% endfor %}
+          {% if failures_data.cat3 | length > 10 %}
+          ... and {{ failures_data.cat3 | length - 10 }} more CAT III findings.
+          {% endif %}
+          {% endif %}
+
+          -------------------------------------------------------------------------
+                                      RECOMMENDATIONS
+          -------------------------------------------------------------------------
+          {% if production_ready %}
+          ✅ System meets Windows DISA STIG requirements for production use.
+          {% else %}
+          ❌ System is not ready for production. Remediate the findings above and rerun the audit.
+          {% endif %}

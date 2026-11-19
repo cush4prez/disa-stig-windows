@@ -1,0 +1,92 @@
+---
+# Load organization-specific Windows STIG tailoring variables
+
+- name: Normalize tailoring profile name
+  ansible.builtin.set_fact:
+    windows_stig_with_rollback_tailoring_profile: "{{ windows_stig_with_rollback_tailoring_profile | default('') | string | trim }}"
+
+- name: Check if tailoring profile is specified
+  ansible.builtin.set_fact:
+    windows_stig_with_rollback_use_tailoring: >-
+      {{ windows_stig_with_rollback_tailoring_profile | length > 0 }}
+
+- name: Display tailoring status
+  ansible.builtin.debug:
+    msg:
+      - "========================================================================="
+      - "WINDOWS STIG TAILORING CONFIGURATION"
+      - "========================================================================="
+      - >-
+        {% if windows_stig_with_rollback_use_tailoring %}
+        Tailoring Profile: {{ windows_stig_with_rollback_tailoring_profile }}
+        {% else %}
+        No tailoring profile specified - using defaults
+        {% endif %}
+      - "========================================================================="
+
+- name: Load tailoring variables
+  when: windows_stig_with_rollback_use_tailoring
+  block:
+    - name: Set tailoring base path
+      ansible.builtin.set_fact:
+        windows_stig_with_rollback_tailoring_base: >-
+          {{ playbook_dir }}/../tailoring/{{ windows_stig_with_rollback_tailoring_profile }}
+
+    - name: Check if tailoring directory exists
+      ansible.builtin.stat:
+        path: "{{ windows_stig_with_rollback_tailoring_base }}"
+      delegate_to: localhost
+      become: false
+      register: _win_tailoring_dir_stat
+
+    - name: Fail if tailoring directory not found
+      ansible.builtin.fail:
+        msg:
+          - "Tailoring profile directory not found: {{ windows_stig_with_rollback_tailoring_base }}"
+          - "Create the directory and add tailoring files (common.yml / win2019.yml / win2022.yml / win2025.yml)."
+      when: not _win_tailoring_dir_stat.stat.exists
+
+    - name: Detect Windows Server release key (win2019, win2022, win2025)
+      ansible.builtin.set_fact:
+        _win_release_key: >-
+          {%- set dist = ansible_distribution | default('') -%}
+          {%- if '2025' in dist -%}win2025
+          {%- elif '2022' in dist -%}win2022
+          {%- elif '2019' in dist -%}win2019
+          {%- else -%}win_generic
+          {%- endif -%}
+
+    - name: Check for common and OS-specific tailoring files
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      loop:
+        - "{{ windows_stig_with_rollback_tailoring_base }}/common.yml"
+        - "{{ windows_stig_with_rollback_tailoring_base }}/{{ _win_release_key }}.yml"
+      delegate_to: localhost
+      become: false
+      register: _win_tailoring_files_stat
+
+    - name: Load common tailoring variables
+      ansible.builtin.include_vars:
+        file: "{{ windows_stig_with_rollback_tailoring_base }}/common.yml"
+        name: windows_stig_with_rollback_tailoring_common_vars
+      when: _win_tailoring_files_stat.results[0].stat.exists
+
+    - name: Load version-specific tailoring variables
+      ansible.builtin.include_vars:
+        file: "{{ windows_stig_with_rollback_tailoring_base }}/{{ _win_release_key }}.yml"
+        name: windows_stig_with_rollback_tailoring_version_vars
+      when: _win_tailoring_files_stat.results[1].stat.exists
+
+    - name: Merge tailoring variables
+      ansible.builtin.set_fact:
+        windows_stig_with_rollback_tailoring_vars: >-
+          {{ (windows_stig_with_rollback_tailoring_common_vars | default({})) |
+             combine(windows_stig_with_rollback_tailoring_version_vars | default({})) }}
+
+    - name: Apply tailoring variables to current scope
+      ansible.builtin.set_fact:
+        "{{ item.key }}": "{{ item.value }}"
+      loop: "{{ windows_stig_with_rollback_tailoring_vars | dict2items }}"
+      loop_control:
+        label: "{{ item.key }}"

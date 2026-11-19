@@ -1,0 +1,105 @@
+---
+# Interactive Windows Server DISA STIG playbook with prompts (for CLI execution)
+# For Ansible Automation Platform 2.7, use playbooks/site.yml with the survey configuration
+
+- name: Windows Server DISA STIG with Rollback (Interactive Mode)
+  hosts: all
+  gather_facts: true
+
+  vars_prompt:
+    - name: stig_audit_mode
+      prompt: |
+
+        ╔════════════════════════════════════════════════════════════════════════╗
+        ║                 WINDOWS STIG AUDIT MODE SELECTION                      ║
+        ╚════════════════════════════════════════════════════════════════════════╝
+
+        Select STIG audit mode:
+
+          [1] full      - Audit ALL STIG rules from the benchmark (default)
+          [2] selective - Audit only specific STIG/Rule IDs you specify
+
+        Enter your choice (1 or 2)
+      private: false
+      default: "1"
+
+    - name: stig_rules_input
+      prompt: |
+
+        ╔════════════════════════════════════════════════════════════════════════╗
+        ║                   SELECTIVE STIG RULES (Optional)                      ║
+        ╚════════════════════════════════════════════════════════════════════════╝
+
+        Enter comma-separated list of STIG IDs (V-XXXXXX / WN22-XX-XXXXXX) or rule IDs.
+        (Only applies if you selected 'selective' mode above)
+
+        Leave blank to skip (or if using 'full' mode)
+      private: false
+      default: ""
+
+    - name: apply_remediations_choice
+      prompt: |
+
+        ╔════════════════════════════════════════════════════════════════════════╗
+        ║                        REMEDIATION SETTINGS                            ║
+        ╚════════════════════════════════════════════════════════════════════════╝
+
+        Apply remediations automatically?
+
+          [1] yes - Apply remediations (default)
+          [2] no  - Audit only, do not remediate
+
+        Enter your choice (1 or 2)
+      private: false
+      default: "1"
+
+    - name: auto_rollback_choice
+      prompt: |
+
+        ╔════════════════════════════════════════════════════════════════════════╗
+        ║                         ROLLBACK SETTINGS                              ║
+        ╚════════════════════════════════════════════════════════════════════════╝
+
+        Automatically rollback if operational verification fails?
+
+          [1] yes - Auto rollback on failure (default, recommended)
+          [2] no  - Do not auto rollback
+
+        Enter your choice (1 or 2)
+      private: false
+      default: "1"
+
+  pre_tasks:
+    - name: Convert interactive inputs to role variables
+      ansible.builtin.set_fact:
+        windows_stig_with_rollback_stig_rules_to_apply: >-
+          {% if stig_audit_mode == "2" or stig_audit_mode == "selective" %}
+          {{ stig_rules_input.replace('
+', ',').split(',') | map('trim') | reject('equalto', '') | list }}
+          {% else %}
+          []
+          {% endif %}
+        windows_stig_with_rollback_apply_remediations: >-
+          {{ apply_remediations_choice in ["1", "yes", "true"] }}
+        windows_stig_with_rollback_auto_rollback_on_failure: >-
+          {{ auto_rollback_choice in ["1", "yes", "true"] }}
+
+    - name: Display configuration summary
+      ansible.builtin.debug:
+        msg:
+          - "╔════════════════════════════════════════════════════════════════════════╗"
+          - "║                    CONFIGURATION SUMMARY                               ║"
+          - "╚════════════════════════════════════════════════════════════════════════╝"
+          - "Audit Mode          : {% if windows_stig_with_rollback_stig_rules_to_apply | length > 0 %}SELECTIVE{% else %}FULL{% endif %}"
+          - "Selected Rules      : {{ windows_stig_with_rollback_stig_rules_to_apply | length }} rules"
+          - "Apply Remediations  : {{ windows_stig_with_rollback_apply_remediations }}"
+          - "Auto Rollback       : {{ windows_stig_with_rollback_auto_rollback_on_failure }}"
+          - "╚════════════════════════════════════════════════════════════════════════╝"
+
+    - name: Confirm to continue
+      ansible.builtin.pause:
+        prompt: "Press ENTER to continue with this configuration, or Ctrl+C then 'A' to abort"
+      when: windows_stig_with_rollback_apply_remediations | bool
+
+  roles:
+    - role: windows_stig_with_rollback

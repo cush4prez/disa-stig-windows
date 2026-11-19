@@ -1,0 +1,84 @@
+---
+# Native Ansible replacement for filter_audit_results.py (runs on controller against Windows XCCDF XML)
+
+- name: Extract all rule-result idref attributes from XCCDF XML
+  community.general.xml:
+    path: "{{ oscap_xml_file }}"
+    xpath: //*[local-name()='TestResult']/*[local-name()='rule-result']
+    content: attribute
+  delegate_to: localhost
+  become: false
+  register: xml_rule_attrs
+
+- name: Extract all rule-result status text nodes from XCCDF XML
+  community.general.xml:
+    path: "{{ oscap_xml_file }}"
+    xpath: //*[local-name()='TestResult']/*[local-name()='rule-result']/*[local-name()='result']
+    content: text
+  delegate_to: localhost
+  become: false
+  register: xml_rule_statuses
+
+- name: Normalize requested rule IDs
+  ansible.builtin.set_fact:
+    normalized_rule_ids: >-
+      {{
+        stig_rules_to_filter | default([])
+        | map('regex_replace', '^.*_rule_(.*)$', '')
+        | list
+      }}
+
+- name: Build rule results map safely
+  ansible.builtin.set_fact:
+    _rule_results_map: >-
+      {%- set result_map = {} -%}
+      {%- set attrs = xml_rule_attrs.matches | default([]) -%}
+      {%- set statuses = xml_rule_statuses.matches | default([]) -%}
+      {%- for idx in range(attrs | length) -%}
+        {%- set node_dict = attrs[idx].values() | list | first | default({}) -%}
+        {%- set full_id = node_dict.get('idref', '') -%}
+        {%- set short_id = full_id | regex_replace('^.*_rule_(.*)$', '') -%}
+        {%- set status_dict = statuses[idx] if idx < (statuses | length) else {} -%}
+        {%- set status_val = (status_dict.values() | list | first | default('notchecked')) | string | trim | lower -%}
+        {%- if short_id != '' -%}
+          {%- set _ = result_map.update({short_id: {'full_id': full_id, 'result': status_val}}) -%}
+        {%- endif -%}
+      {%- endfor -%}
+      {{ result_map }}
+
+- name: Categorize filtered rules
+  ansible.builtin.set_fact:
+    oscap_filtered_results: >-
+      {%- set found = [] -%}
+      {%- set not_found = [] -%}
+      {%- set passed = [] -%}
+      {%- set failed = [] -%}
+      {%- set notapplicable = [] -%}
+      {%- set notchecked = [] -%}
+      {%- for req_id in normalized_rule_ids -%}
+        {%- if req_id in _rule_results_map -%}
+          {%- set entry = _rule_results_map[req_id] -%}
+          {%- set _ = found.append(entry.full_id) -%}
+          {%- if entry.result == 'pass' -%}
+            {%- set _ = passed.append(entry.full_id) -%}
+          {%- elif entry.result in ['fail', 'error'] -%}
+            {%- set _ = failed.append(entry.full_id) -%}
+          {%- elif entry.result in ['notapplicable', 'notselected'] -%}
+            {%- set _ = notapplicable.append(entry.full_id) -%}
+          {%- else -%}
+            {%- set _ = notchecked.append(entry.full_id) -%}
+          {%- endif -%}
+        {%- else -%}
+          {%- set _ = not_found.append(req_id) -%}
+        {%- endif -%}
+      {%- endfor -%}
+      {{
+        {
+          'found': found,
+          'not_found': not_found,
+          'pass': passed,
+          'fail': failed,
+          'notapplicable': notapplicable,
+          'notchecked': notchecked
+        }
+      }}

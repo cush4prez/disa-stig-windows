@@ -1,0 +1,13 @@
+---
+# Example Windows Server DISA STIG Tailoring Profile
+# Copy to tailoring/<org_name>/common.yml (and optional win2019.yml / win2022.yml / win2025.yml)
+
+win_lockout_duration: 15
+win_lockout_bad_count: 3
+win_reset_lockout_count: 15
+win_password_history_size: 24
+win_maximum_password_age: 60
+win_minimum_password_age: 1
+win_minimum_password_length: 14
+win_legal_notice_caption: "DoD Notice and Consent Banner"
+win_legal_notice_text: "You are accessing a U.S. Government (USG) Information System (IS) that is provided for USG-authorized use only."

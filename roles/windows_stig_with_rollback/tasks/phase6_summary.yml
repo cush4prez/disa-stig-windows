@@ -1,0 +1,39 @@
+---
+# Phase 6: Final Windows STIG Summary & Rollback Instructions
+
+- name: Write rollback instructions file on Windows host
+  ansible.windows.win_copy:
+    dest: "{{ windows_stig_with_rollback_backup_root }}\ROLLBACK_INSTRUCTIONS.txt"
+    content: |
+      WINDOWS SERVER DISA STIG ROLLBACK INSTRUCTIONS
+      ==============================================
+      Target Host   : {{ inventory_hostname }}
+      Backup Name   : {{ windows_stig_with_rollback_backup_name }}
+      Backup Archive: {{ windows_stig_with_rollback_backup_archive | default('Not created') }}
+
+      Automated Rollback via Ansible / AAP:
+        ansible-playbook -i inventory.ini playbooks/perform_rollback.yml           -e windows_stig_with_rollback_backup_name={{ windows_stig_with_rollback_backup_name }}
+
+      Manual Local Rollback (PowerShell as Administrator):
+        Expand-Archive -Path "{{ windows_stig_with_rollback_backup_archive | default('C:\stig_backups\<backup>.zip') }}" -DestinationPath "C:\stig_restore" -Force
+        secedit.exe /configure /db C:\Windows\security\local.sdb /cfg "C:\stig_restore\secpol.inf" /quiet
+        auditpol.exe /restore /file:"C:\stig_restore\auditpol.csv"
+        netsh.exe advfirewall import "C:\stig_restore\firewall.wfw"
+        gpupdate.exe /force
+
+- name: Display hardening summary
+  ansible.builtin.debug:
+    msg:
+      - "========================================================================="
+      - "            WINDOWS SERVER DISA STIG HARDENING COMPLETE"
+      - "========================================================================="
+      - "Target Host               : {{ inventory_hostname }}"
+      - "Windows OS                : {{ ansible_distribution | default('Windows Server') }} {{ ansible_distribution_version | default('') }}"
+      - "Baseline Compliance       : {{ windows_stig_with_rollback_baseline_score | default('0.0') }}%"
+      - "{% if windows_stig_with_rollback_apply_remediations | bool %}Post-Hardening Compliance : {{ windows_stig_with_rollback_post_score | default('0.0') }}%{% endif %}"
+      - "{% if windows_stig_with_rollback_apply_remediations | bool %}Compliance Improvement    : +{{ ((windows_stig_with_rollback_post_score | default('0.0') | float) - (windows_stig_with_rollback_baseline_score | default('0.0') | float)) | round(2) }}%{% endif %}"
+      - "-------------------------------------------------------------------------"
+      - "Backup Archive            : {{ windows_stig_with_rollback_backup_archive | default('Not created') }}"
+      - "Audit Directory           : {{ windows_stig_with_rollback_stig_audit_dir }}"
+      - "Rollback Instructions     : {{ windows_stig_with_rollback_backup_root }}\ROLLBACK_INSTRUCTIONS.txt"
+      - "========================================================================="

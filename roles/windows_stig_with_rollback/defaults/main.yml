@@ -1,0 +1,49 @@
+---
+# Default variables for windows_stig_with_rollback role
+
+# Core remediation and rollback settings
+windows_stig_with_rollback_apply_remediations: true
+windows_stig_with_rollback_enable_auto_backup: true
+windows_stig_with_rollback_auto_rollback_on_failure: true
+windows_stig_with_rollback_rollback_on_critical_service_failure: true
+
+# Selective mode & exclusions (empty = full benchmark remediation)
+windows_stig_with_rollback_stig_rules_to_apply: []
+windows_stig_with_rollback_stig_rules_to_exclude: []
+
+# Organization tailoring profile (under tailoring/<profile>/)
+windows_stig_with_rollback_tailoring_profile: ""
+
+# Windows working directories
+windows_stig_with_rollback_backup_root: 'C:\stig_backups'
+windows_stig_with_rollback_stig_audit_dir: 'C:\stig_audit'
+windows_stig_with_rollback_stig_work_dir: 'C:\stig_work'
+
+# Backup timestamp & naming
+windows_stig_with_rollback_backup_timestamp: "{{ ansible_date_time.iso8601_basic_short }}"
+windows_stig_with_rollback_backup_name: "pre_stig_{{ inventory_hostname }}_{{ windows_stig_with_rollback_backup_timestamp }}"
+
+# Controller backup fetch (AAP Disaster Recovery)
+windows_stig_with_rollback_fetch_to_controller: true
+windows_stig_with_rollback_controller_backup_dir: "/var/lib/awx/projects/stig_backups"
+
+# DISA SCAP Compliance Checker (SCC) settings on Windows target
+windows_stig_with_rollback_scc_executable: 'C:\Program Files\SCAP Compliance Checker 5.9\cscc.exe'
+windows_stig_with_rollback_stig_profile_id: "MAC-1_Classified"
+
+# Optional external Windows STIG remediation role or task file
+# (e.g., ansible-lockdown Windows-2022-STIG / Windows-2025-STIG or custom task list)
+windows_stig_with_rollback_remediation_role: ""
+windows_stig_with_rollback_remediation_tasks_file: ""
+
+# Critical Windows services that must remain running after hardening
+windows_stig_with_rollback_critical_services:
+  - WinRM
+  - Netlogon
+  - EventLog
+  - BFE
+  - MpsSvc
+
+# Reboot handling
+windows_stig_with_rollback_auto_reboot: false
+windows_stig_with_rollback_reboot_timeout: 600

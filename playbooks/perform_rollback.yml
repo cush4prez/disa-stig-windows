@@ -1,0 +1,8 @@
+---
+- name: Emergency Windows STIG Rollback
+  hosts: all
+  gather_facts: true
+
+  tasks:
+    - name: Include Windows rollback tasks
+      ansible.builtin.include_tasks: ../roles/windows_stig_with_rollback/tasks/rollback.yml
