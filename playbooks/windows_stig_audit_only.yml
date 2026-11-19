@@ -2,7 +2,7 @@
 # Audit-Only Playbook for Windows Server (100% Native Ansible - Zero Python Scripts)
 - name: Windows Server DISA STIG Audit Only (NO REMEDIATIONS)
   hosts: all
-  gather_facts: false
+  gather_facts: true
 
   tasks:
     - name: Run Windows STIG role in audit-only mode

@@ -33,11 +33,11 @@
 - name: Set default post-hardening score if SCC unavailable
   ansible.builtin.set_fact:
     windows_stig_with_rollback_post_score: "{{ windows_stig_with_rollback_baseline_score | default('0.0') }}"
-  when: not _win_post_scc_stat.stat.exists or not (windows_stig_with_rollback_apply_remediations | bool)
+  when: not windows_stig_with_rollback_win_post_scc_stat.stat.exists or not (windows_stig_with_rollback_apply_remediations | bool)
 
 - name: Execute post-hardening DISA SCC scan and parse natively
   when:
-    - _win_post_scc_stat.stat.exists
+    - windows_stig_with_rollback_win_post_scc_stat.stat.exists
     - windows_stig_with_rollback_apply_remediations | bool
   block:
     - name: Execute DISA SCC post-hardening scan
@@ -59,16 +59,16 @@
 
     - name: Fetch post-hardening XCCDF XML to controller
       ansible.builtin.fetch:
-        src: "{{ (_win_post_xml_found.files | sort(attribute='lastwritetime') | last).path }}"
+        src: "{{ (windows_stig_with_rollback_win_post_xml_found.files | sort(attribute='lastwritetime') | last).path }}"
         dest: "/tmp/win_post_{{ inventory_hostname }}_{{ windows_stig_with_rollback_backup_timestamp }}.xml"
         flat: true
-      when: _win_post_xml_found.matched > 0
+      when: windows_stig_with_rollback_win_post_xml_found.matched > 0
 
     - name: Parse post-hardening score natively on controller
       ansible.builtin.include_tasks: parse_oscap_score.yml
       vars:
         oscap_xml_file: "/tmp/win_post_{{ inventory_hostname }}_{{ windows_stig_with_rollback_backup_timestamp }}.xml"
-      when: _win_post_xml_found.matched > 0
+      when: windows_stig_with_rollback_win_post_xml_found.matched > 0
 
     - name: Store post-hardening score
       ansible.builtin.set_fact:

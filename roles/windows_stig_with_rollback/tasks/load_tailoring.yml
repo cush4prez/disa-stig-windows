@@ -70,13 +70,13 @@
       ansible.builtin.include_vars:
         file: "{{ windows_stig_with_rollback_tailoring_base }}/common.yml"
         name: windows_stig_with_rollback_tailoring_common_vars
-      when: _win_tailoring_files_stat.results[0].stat.exists
+      when: windows_stig_with_rollback_tailoring_files_stat.results[0].stat.exists
 
     - name: Load version-specific tailoring variables
       ansible.builtin.include_vars:
-        file: "{{ windows_stig_with_rollback_tailoring_base }}/{{ _win_release_key }}.yml"
+        file: "{{ windows_stig_with_rollback_tailoring_base }}/{{ windows_stig_with_rollback_win_release_key }}.yml"
         name: windows_stig_with_rollback_tailoring_version_vars
-      when: _win_tailoring_files_stat.results[1].stat.exists
+      when: windows_stig_with_rollback_tailoring_files_stat.results[1].stat.exists
 
     - name: Merge tailoring variables
       ansible.builtin.set_fact:
