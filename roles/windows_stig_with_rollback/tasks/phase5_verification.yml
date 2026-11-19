@@ -1,4 +1,5 @@
 ---
+# cSpell:words disa stig
 # Phase 5: Post-hardening Windows operational verification, auto-rollback check, and post-audit
 
 - name: Run Windows operational checks
@@ -27,7 +28,7 @@
 - name: Run post-hardening DISA SCC scan if SCC is installed
   ansible.windows.win_stat:
     path: "{{ windows_stig_with_rollback_scc_executable }}"
-  register: _win_post_scc_stat
+  register: windows_stig_with_rollback_win_post_scc_stat
 
 - name: Set default post-hardening score if SCC unavailable
   ansible.builtin.set_fact:
@@ -45,16 +46,16 @@
         -u "{{ windows_stig_with_rollback_stig_audit_dir }}\post_{{ windows_stig_with_rollback_backup_timestamp }}"
         -p "{{ windows_stig_with_rollback_stig_profile_id }}"
         -q
-      register: _win_post_scan
+      register: windows_stig_with_rollback_win_post_scan
       failed_when: false
       changed_when: false
 
     - name: Locate post-hardening XCCDF XML file
       ansible.windows.win_find:
-        paths: "{{ windows_stig_with_rollback_stig_audit_dir }}\post_{{ windows_stig_with_rollback_backup_timestamp }}"
+        paths: "{{ windows_stig_with_rollback_stig_audit_dir }}\\post_{{ windows_stig_with_rollback_backup_timestamp }}"
         patterns: "*XCCDF*.xml"
         recurse: true
-      register: _win_post_xml_found
+      register: windows_stig_with_rollback_win_post_xml_found
 
     - name: Fetch post-hardening XCCDF XML to controller
       ansible.builtin.fetch:

@@ -1,4 +1,5 @@
 ---
+# cspell:ignore disa scap stig
 # Phase 1: Pre-hardening validation for Windows Server
 
 - name: Verify target OS is Windows
@@ -16,12 +17,12 @@
       Domain       = $cs.Domain
       DomainRole   = $cs.DomainRole
     } | ConvertTo-Json -Compress
-  register: _win_domain_info_raw
+  register: windows_stig_with_rollback_win_domain_info_raw
   changed_when: false
 
 - name: Parse Windows domain membership facts
   ansible.builtin.set_fact:
-    windows_stig_with_rollback_domain_info: "{{ _win_domain_info_raw.stdout | from_json }}"
+    windows_stig_with_rollback_domain_info: "{{ windows_stig_with_rollback_win_domain_info_raw.stdout | from_json }}"
 
 - name: Warn if host is a Domain Controller (DomainRole 4 or 5)
   ansible.builtin.debug:
@@ -42,14 +43,14 @@
 - name: Verify DISA SCAP Compliance Checker (SCC) installation
   ansible.windows.win_stat:
     path: "{{ windows_stig_with_rollback_scc_executable }}"
-  register: _win_scc_stat
+  register: windows_stig_with_rollback_scc_stat
 
 - name: Warn if DISA SCC is not installed at configured path
   ansible.builtin.debug:
     msg:
       - "⚠️  DISA SCC executable not found at: {{ windows_stig_with_rollback_scc_executable }}"
       - "Automated XCCDF scanning in Phase 3/5 will be skipped unless SCC is installed."
-  when: not _win_scc_stat.stat.exists
+  when: not windows_stig_with_rollback_scc_stat.stat.exists
 
 - name: Display hardening plan
   ansible.builtin.debug:
@@ -62,5 +63,5 @@
       - "Domain Joined      : {{ windows_stig_with_rollback_domain_info.PartOfDomain }} ({{ windows_stig_with_rollback_domain_info.Domain }})"
       - "Auto Backup        : {{ 'Enabled' if windows_stig_with_rollback_enable_auto_backup else 'Disabled' }}"
       - "Auto Rollback      : {{ 'Enabled' if windows_stig_with_rollback_auto_rollback_on_failure else 'Disabled' }}"
-      - "Backup Location    : {{ windows_stig_with_rollback_backup_root }}\{{ windows_stig_with_rollback_backup_name }}.zip"
+      - "Backup Location    : {{ windows_stig_with_rollback_backup_root }}\\{{ windows_stig_with_rollback_backup_name }}.zip"
       - "========================================================================="

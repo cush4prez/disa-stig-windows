@@ -37,18 +37,18 @@
         path: "{{ windows_stig_with_rollback_tailoring_base }}"
       delegate_to: localhost
       become: false
-      register: _win_tailoring_dir_stat
+      register: windows_stig_with_rollback_tailoring_dir_stat
 
     - name: Fail if tailoring directory not found
       ansible.builtin.fail:
         msg:
           - "Tailoring profile directory not found: {{ windows_stig_with_rollback_tailoring_base }}"
           - "Create the directory and add tailoring files (common.yml / win2019.yml / win2022.yml / win2025.yml)."
-      when: not _win_tailoring_dir_stat.stat.exists
+      when: not windows_stig_with_rollback_tailoring_dir_stat.stat.exists
 
     - name: Detect Windows Server release key (win2019, win2022, win2025)
       ansible.builtin.set_fact:
-        _win_release_key: >-
+        windows_stig_with_rollback_win_release_key: >-
           {%- set dist = ansible_distribution | default('') -%}
           {%- if '2025' in dist -%}win2025
           {%- elif '2022' in dist -%}win2022
@@ -61,10 +61,10 @@
         path: "{{ item }}"
       loop:
         - "{{ windows_stig_with_rollback_tailoring_base }}/common.yml"
-        - "{{ windows_stig_with_rollback_tailoring_base }}/{{ _win_release_key }}.yml"
+        - "{{ windows_stig_with_rollback_tailoring_base }}/{{ windows_stig_with_rollback_win_release_key }}.yml"
       delegate_to: localhost
       become: false
-      register: _win_tailoring_files_stat
+      register: windows_stig_with_rollback_tailoring_files_stat
 
     - name: Load common tailoring variables
       ansible.builtin.include_vars:

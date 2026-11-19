@@ -64,14 +64,14 @@
 
     - name: Locate generated XCCDF XML results file
       ansible.windows.win_find:
-        paths: "{{ stig_audit_dir }}\scc_{{ audit_timestamp }}"
+        paths: "{{ stig_audit_dir }}\\scc_{{ audit_timestamp }}"
         patterns: "*XCCDF*.xml"
         recurse: true
       register: found_xccdf_xml
 
     - name: Fail if audit did not generate XCCDF results XML
       ansible.builtin.fail:
-        msg: "DISA SCC audit failed to generate XCCDF results XML under {{ stig_audit_dir }}\scc_{{ audit_timestamp }}"
+        msg: "DISA SCC audit failed to generate XCCDF results XML under {{ stig_audit_dir }}\\scc_{{ audit_timestamp }}"
       when: found_xccdf_xml.matched == 0
 
     - name: Fetch XCCDF XML to controller for native parsing

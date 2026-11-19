@@ -8,7 +8,7 @@
     content: attribute
   delegate_to: localhost
   become: false
-  register: xml_rule_attrs
+  register: windows_stig_with_rollback_xml_rule_attrs
 
 - name: Extract all rule-result status text nodes from XCCDF XML
   community.general.xml:
@@ -17,27 +17,34 @@
     content: text
   delegate_to: localhost
   become: false
-  register: xml_rule_statuses
+  register: windows_stig_with_rollback_xml_rule_statuses
 
 - name: Normalize requested rule IDs
   ansible.builtin.set_fact:
-    normalized_rule_ids: >-
-      {{
-        stig_rules_to_filter | default([])
-        | map('regex_replace', '^.*_rule_(.*)$', '')
-        | list
-      }}
+    windows_stig_with_rollback_normalized_rule_ids: >-
+      {%- set requested_ids = stig_rules_to_filter | default([]) -%}
+      {%- if requested_ids is string -%}
+        {%- set requested_ids = [requested_ids] -%}
+      {%- endif -%}
+      {%- set normalized_ids = [] -%}
+      {%- for rule_id in requested_ids -%}
+        {%- set normalized_id = rule_id | string | regex_replace('^.*_rule_(.*)$', '\1') | trim -%}
+        {%- if normalized_id != '' -%}
+          {%- set _ = normalized_ids.append(normalized_id) -%}
+        {%- endif -%}
+      {%- endfor -%}
+      {{ normalized_ids | unique | list }}
 
 - name: Build rule results map safely
   ansible.builtin.set_fact:
-    _rule_results_map: >-
+    windows_stig_with_rollback_rule_results_map: >-
       {%- set result_map = {} -%}
-      {%- set attrs = xml_rule_attrs.matches | default([]) -%}
-      {%- set statuses = xml_rule_statuses.matches | default([]) -%}
+      {%- set attrs = windows_stig_with_rollback_xml_rule_attrs.matches | default([]) -%}
+      {%- set statuses = windows_stig_with_rollback_xml_rule_statuses.matches | default([]) -%}
       {%- for idx in range(attrs | length) -%}
         {%- set node_dict = attrs[idx].values() | list | first | default({}) -%}
         {%- set full_id = node_dict.get('idref', '') -%}
-        {%- set short_id = full_id | regex_replace('^.*_rule_(.*)$', '') -%}
+        {%- set short_id = full_id | regex_replace('^.*_rule_(.*)$', '\1') -%}
         {%- set status_dict = statuses[idx] if idx < (statuses | length) else {} -%}
         {%- set status_val = (status_dict.values() | list | first | default('notchecked')) | string | trim | lower -%}
         {%- if short_id != '' -%}
@@ -48,14 +55,14 @@
 
 - name: Categorize filtered rules
   ansible.builtin.set_fact:
-    oscap_filtered_results: >-
+    windows_stig_with_rollback_filtered_results: >-
       {%- set found = [] -%}
       {%- set not_found = [] -%}
       {%- set passed = [] -%}
       {%- set failed = [] -%}
       {%- set notapplicable = [] -%}
       {%- set notchecked = [] -%}
-      {%- for req_id in normalized_rule_ids -%}
+      {%- for req_id in windows_stig_with_rollback_normalized_rule_ids -%}
         {%- if req_id in _rule_results_map -%}
           {%- set entry = _rule_results_map[req_id] -%}
           {%- set _ = found.append(entry.full_id) -%}

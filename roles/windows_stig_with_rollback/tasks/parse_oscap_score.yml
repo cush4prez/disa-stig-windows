@@ -1,4 +1,5 @@
 ---
+# cSpell:ignore stig oscap notapplicable notchecked equalto
 # Parse XCCDF compliance score from XML using native Ansible on the controller (100% Python-script free)
 
 - name: Check if audit XML file exists on controller
@@ -6,38 +7,38 @@
     path: "{{ oscap_xml_file }}"
   delegate_to: localhost
   become: false
-  register: _win_xml_stat
+  register: windows_stig_with_rollback_xml_stat
 
 - name: Set default score if XML not found
   ansible.builtin.set_fact:
     windows_stig_with_rollback_oscap_compliance_score: "0.0"
-  when: not _win_xml_stat.stat.exists
+  when: not windows_stig_with_rollback_xml_stat.stat.exists
 
 - name: Parse XCCDF results from XML on controller
-  when: _win_xml_stat.stat.exists
+  when: windows_stig_with_rollback_xml_stat.stat.exists
   block:
     - name: Read XCCDF XML file on controller
       ansible.builtin.slurp:
         src: "{{ oscap_xml_file }}"
       delegate_to: localhost
       become: false
-      register: _win_xml_b64
+      register: windows_stig_with_rollback_xml_b64
 
     - name: Extract all rule-result result elements
       community.general.xml:
-        xmlstring: "{{ _win_xml_b64.content | b64decode }}"
+        xmlstring: "{{ windows_stig_with_rollback_xml_b64.content | b64decode }}"
         xpath: "//*[local-name()='rule-result']/*[local-name()='result']"
         content: text
       delegate_to: localhost
       become: false
-      register: _win_results_xml
+      register: windows_stig_with_rollback_results_xml
       failed_when: false
 
     - name: Extract raw result strings into flat list
       ansible.builtin.set_fact:
-        _win_raw_results: >-
+        windows_stig_with_rollback_raw_results: >-
           {%- set results = [] -%}
-          {%- for match in _win_results_xml.matches | default([]) -%}
+          {%- for match in windows_stig_with_rollback_results_xml.matches | default([]) -%}
             {%- if match is string -%}
               {%- set _ = results.append(match | trim | lower) -%}
             {%- elif match is mapping and match.values() | length > 0 -%}
@@ -48,10 +49,22 @@
 
     - name: Calculate pass/fail counts and compliance percentage
       ansible.builtin.set_fact:
-        windows_stig_with_rollback_oscap_pass_count: "{{ (_win_raw_results | select('equalto', 'pass') | list | length) | int }}"
-        windows_stig_with_rollback_oscap_fail_count: "{{ (_win_raw_results | select('equalto', 'fail') | list | length) | int }}"
-        windows_stig_with_rollback_oscap_notapplicable_count: "{{ (_win_raw_results | select('equalto', 'notapplicable') | list | length) | int }}"
-        windows_stig_with_rollback_oscap_notchecked_count: "{{ (_win_raw_results | select('equalto', 'notchecked') | list | length) | int }}"
+        windows_stig_with_rollback_oscap_pass_count: "{{ (windows_stig_with_rollback_raw_results | select('equalto', 'pass') | list | length) | int }}"
+        windows_stig_with_rollback_oscap_fail_count: "{{ (windows_stig_with_rollback_raw_results | select('equalto', 'fail') | list | length) | int }}"
+        windows_stig_with_rollback_oscap_notapplicable_count: >-
+          {{
+            (windows_stig_with_rollback_raw_results
+            | select('equalto', 'notapplicable')
+            | list
+            | length) | int
+          }}
+        windows_stig_with_rollback_oscap_notchecked_count: >-
+          {{
+            (windows_stig_with_rollback_raw_results
+            | select('equalto', 'notchecked')
+            | list
+            | length) | int
+          }}
 
     - name: Compute checked rules and percentage score
       ansible.builtin.set_fact:

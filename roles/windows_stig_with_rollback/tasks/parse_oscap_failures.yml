@@ -16,46 +16,46 @@
     src: "{{ oscap_xml_file }}"
   delegate_to: localhost
   become: false
-  register: _win_fail_xml_b64
+  register: windows_stig_with_rollback_fail_xml_b64
 
 - name: Extract Rule elements from Benchmark
   community.general.xml:
-    xmlstring: "{{ _win_fail_xml_b64.content | b64decode }}"
+    xmlstring: "{{ windows_stig_with_rollback_fail_xml_b64.content | b64decode }}"
     xpath: "//*[local-name()='Rule']"
     content: attribute
   delegate_to: localhost
   become: false
-  register: _win_rules_xml
+  register: windows_stig_with_rollback_rules_xml
   failed_when: false
 
 - name: Extract Rule titles
   community.general.xml:
-    xmlstring: "{{ _win_fail_xml_b64.content | b64decode }}"
+    xmlstring: "{{ windows_stig_with_rollback_fail_xml_b64.content | b64decode }}"
     xpath: "//*[local-name()='Rule']/*[local-name()='title']"
     content: text
   delegate_to: localhost
   become: false
-  register: _win_titles_xml
+  register: windows_stig_with_rollback_titles_xml
   failed_when: false
 
 - name: Extract test result attributes and statuses
   community.general.xml:
-    xmlstring: "{{ _win_fail_xml_b64.content | b64decode }}"
+    xmlstring: "{{ windows_stig_with_rollback_fail_xml_b64.content | b64decode }}"
     xpath: "//*[local-name()='rule-result']"
     content: attribute
   delegate_to: localhost
   become: false
-  register: _win_rr_attrs_xml
+  register: windows_stig_with_rollback_rr_attrs_xml
   failed_when: false
 
 - name: Extract test result status text
   community.general.xml:
-    xmlstring: "{{ _win_fail_xml_b64.content | b64decode }}"
+    xmlstring: "{{ windows_stig_with_rollback_fail_xml_b64.content | b64decode }}"
     xpath: "//*[local-name()='rule-result']/*[local-name()='result']"
     content: text
   delegate_to: localhost
   become: false
-  register: _win_rr_vals_xml
+  register: windows_stig_with_rollback_rr_vals_xml
   failed_when: false
 
 - name: Categorize failures into CAT I, CAT II, and CAT III

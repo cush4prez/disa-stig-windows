@@ -8,62 +8,77 @@
       - (windows_stig_with_rollback_backup_name | string | trim | length) > 0
     fail_msg: "Specify windows_stig_with_rollback_backup_name (e.g., pre_stig_win-host-01_20261119T100000)"
 
+- name: Verify backup location is provided
+  ansible.builtin.assert:
+    that:
+      - windows_stig_with_rollback_backup_root is defined
+      - (windows_stig_with_rollback_backup_root | string | trim | length) > 0
+    fail_msg: "Specify windows_stig_with_rollback_backup_root (e.g., C:\\Backups)"
+
 - name: Set backup ZIP path and restore directory
   ansible.builtin.set_fact:
-    _win_rollback_zip: "{{ windows_stig_with_rollback_backup_root }}\{{ windows_stig_with_rollback_backup_name }}.zip"
-    _win_rollback_extract_dir: "{{ windows_stig_with_rollback_backup_root }}\restore_{{ windows_stig_with_rollback_backup_name }}"
+    windows_stig_with_rollback_zip: >-
+      {{ (windows_stig_with_rollback_backup_root | trim | regex_replace('[\\/]+$', '')) }}
+      \{{ windows_stig_with_rollback_backup_name | trim }}.zip
+    windows_stig_with_rollback_extract_dir: >-
+      {{ (windows_stig_with_rollback_backup_root | trim | regex_replace('[\\/]+$', '')) }}
+      \restore_{{ windows_stig_with_rollback_backup_name | trim }}
 
 - name: Check if backup ZIP exists on Windows host
   ansible.windows.win_stat:
-    path: "{{ _win_rollback_zip }}"
-  register: _win_rollback_zip_stat
+    path: "{{ windows_stig_with_rollback_zip }}"
+  register: windows_stig_with_rollback_zip_stat
 
 - name: Fail if backup archive is missing
   ansible.builtin.fail:
-    msg: "Backup archive not found at {{ _win_rollback_zip }}"
-  when: not _win_rollback_zip_stat.stat.exists
+    msg: "Backup archive not found at {{ windows_stig_with_rollback_zip }}"
+  when: not windows_stig_with_rollback_zip_stat.stat.exists
 
 - name: Extract backup archive on Windows host
   community.windows.win_unzip:
-    src: "{{ _win_rollback_zip }}"
-    dest: "{{ _win_rollback_extract_dir }}"
+    src: "{{ windows_stig_with_rollback_zip }}"
+    dest: "{{ windows_stig_with_rollback_extract_dir }}"
 
 - name: Find extracted backup folder
   ansible.windows.win_find:
-    paths: "{{ _win_rollback_extract_dir }}"
+    paths: "{{ windows_stig_with_rollback_extract_dir }}"
     file_type: directory
-  register: _win_extracted_dirs
+  register: windows_stig_with_rollback_extracted_dirs
 
 - name: Set extracted source folder path
   ansible.builtin.set_fact:
-    _win_restore_src: >-
-      {{ (_win_extracted_dirs.files[0].path) if (_win_extracted_dirs.matched > 0) else _win_rollback_extract_dir }}
+    windows_stig_with_rollback_restore_src: >-
+      {{
+        (windows_stig_with_rollback_extracted_dirs.files[0].path)
+        if (windows_stig_with_rollback_extracted_dirs.matched > 0)
+        else windows_stig_with_rollback_extract_dir
+      }}
 
 - name: Restore Local Security Policy, Audit Policy, Registry Hives, and Firewall
   ansible.windows.win_shell: |
     $ErrorActionPreference = "Continue"
-    $src = "{{ _win_restore_src }}"
+    $src = "{{ windows_stig_with_rollback_restore_src }}"
 
     if (Test-Path "$src\secpol.inf") {
       secedit.exe /configure /db C:\Windows\security\local.sdb /cfg "$src\secpol.inf" /quiet
     }
-    if (Test-Path "$srcuditpol.csv") {
-      auditpol.exe /restore /file:"$srcuditpol.csv"
+    if (Test-Path "$src\auditpol.csv") {
+      auditpol.exe /restore /file:"$src\auditpol.csv"
     }
     Get-ChildItem -Path $src -Filter "*.reg" | ForEach-Object {
       reg.exe import $_.FullName
     }
-    if (Test-Path "$srcirewall.wfw") {
-      netsh.exe advfirewall import "$srcirewall.wfw"
+    if (Test-Path "$src\firewall.wfw") {
+      netsh.exe advfirewall import "$src\firewall.wfw"
     }
     gpupdate.exe /force
   changed_when: true
 
 - name: Clean up temporary extraction directory
   ansible.windows.win_file:
-    path: "{{ _win_rollback_extract_dir }}"
+    path: "{{ windows_stig_with_rollback_extract_dir }}"
     state: absent
 
 - name: Display rollback completion
   ansible.builtin.debug:
-    msg: "✅ Windows Server rollback completed from {{ _win_rollback_zip }}."
+    msg: "✅ Windows Server rollback completed from {{ windows_stig_with_rollback_zip }}."

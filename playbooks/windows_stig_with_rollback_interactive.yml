@@ -74,8 +74,7 @@
       ansible.builtin.set_fact:
         windows_stig_with_rollback_stig_rules_to_apply: >-
           {% if stig_audit_mode == "2" or stig_audit_mode == "selective" %}
-          {{ stig_rules_input.replace('
-', ',').split(',') | map('trim') | reject('equalto', '') | list }}
+          {{ stig_rules_input | regex_replace('[,\r\n]+', ',') | split(',') | map('trim') | reject('equalto', '') | list }}
           {% else %}
           []
           {% endif %}

@@ -10,19 +10,17 @@
   block:
     - name: Normalize selected and excluded rules lists
       ansible.builtin.set_fact:
-        _win_req_rules: >-
+        windows_stig_with_rollback_req_rules: >-
           {%- set raw = windows_stig_with_rollback_stig_rules_to_apply | default([]) -%}
           {%- if raw is string -%}
-            {{ raw.replace('
-', ',').split(',') | map('trim') | reject('equalto', '') | list }}
+            {{ raw | regex_replace('\r\n', ',') | regex_replace('\n', ',') | split(',') | map('trim') | reject('equalto', '') | list }}
           {%- else -%}
             {{ raw | map('trim') | reject('equalto', '') | list }}
           {%- endif -%}
-        _win_excl_rules: >-
+        windows_stig_with_rollback_excl_rules: >-
           {%- set raw = windows_stig_with_rollback_stig_rules_to_exclude | default([]) -%}
           {%- if raw is string -%}
-            {{ raw.replace('
-', ',').split(',') | map('trim') | reject('equalto', '') | list }}
+            {{ raw | regex_replace('\r\n', ',') | regex_replace('\n', ',') | split(',') | map('trim') | reject('equalto', '') | list }}
           {%- else -%}
             {{ raw | map('trim') | reject('equalto', '') | list }}
           {%- endif -%}
@@ -31,11 +29,11 @@
       ansible.builtin.debug:
         msg:
           - "========================================================================="
-          - "{% if _win_req_rules | length > 0 %}SELECTIVE WINDOWS STIG REMEDIATION{% else %}FULL WINDOWS STIG REMEDIATION{% endif %}"
+          - "{% if windows_stig_with_rollback_req_rules | length > 0 %}SELECTIVE WINDOWS STIG REMEDIATION{% else %}FULL WINDOWS STIG REMEDIATION{% endif %}"
           - "========================================================================="
           - >-
-            {{ 'Applying ' ~ (_win_req_rules | length) ~ ' selected rules'
-               if (_win_req_rules | length > 0) else 'Applying full Windows Server STIG controls' }}
+            {{ 'Applying ' ~ (windows_stig_with_rollback_req_rules | length) ~ ' selected rules'
+              if (windows_stig_with_rollback_req_rules | length > 0) else 'Applying full Windows Server STIG controls' }}
           - "========================================================================="
 
     - name: Include external Windows STIG remediation role if configured
@@ -59,9 +57,9 @@
 
     - name: Save remediation execution log on target
       ansible.windows.win_copy:
-        dest: "{{ windows_stig_with_rollback_stig_work_dir }}\remediation_{{ windows_stig_with_rollback_backup_timestamp }}.log"
+        dest: "{{ windows_stig_with_rollback_stig_work_dir }}/remediation_{{ windows_stig_with_rollback_backup_timestamp }}.log"
         content: |
-          MODE: {% if _win_req_rules | length > 0 %}SELECTIVE{% else %}FULL{% endif %}
+          MODE: {% if windows_stig_with_rollback_req_rules | length > 0 %}SELECTIVE{% else %}FULL{% endif %}
           TIMESTAMP: {{ windows_stig_with_rollback_backup_timestamp }}
           STATUS: COMPLETED
           NOTE: Executed via 100% Native Ansible Windows modules (win_regedit, win_security_policy, win_user_right, win_audit_policy_system)

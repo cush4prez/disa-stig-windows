@@ -148,7 +148,7 @@
     - ('V-254433' not in _win_excl_rules) and ('WN22-SO-000060' not in _win_excl_rules)
 
 - name: "[V-254275 / WN22-AU-000070] Audit Logon Success and Failure"
-  community.windows.win_audit_policy_system:
+  ansible.windows.win_audit_policy_system:
     subcategory: Logon
     audit_type: success, failure
   when:

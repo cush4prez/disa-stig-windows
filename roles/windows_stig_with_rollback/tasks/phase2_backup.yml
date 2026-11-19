@@ -3,8 +3,8 @@
 
 - name: Set Windows backup folder path
   ansible.builtin.set_fact:
-    windows_stig_with_rollback_backup_dir: "{{ windows_stig_with_rollback_backup_root }}\backup_{{ windows_stig_with_rollback_backup_timestamp }}"
-    windows_stig_with_rollback_backup_archive: "{{ windows_stig_with_rollback_backup_root }}\{{ windows_stig_with_rollback_backup_name }}.zip"
+    windows_stig_with_rollback_backup_dir: "{{ windows_stig_with_rollback_backup_root }}/backup_{{ windows_stig_with_rollback_backup_timestamp }}"
+    windows_stig_with_rollback_backup_archive: "{{ windows_stig_with_rollback_backup_root }}/{{ windows_stig_with_rollback_backup_name }}.zip"
 
 - name: Create backup directory
   ansible.windows.win_file:
@@ -20,18 +20,18 @@
     secedit.exe /export /cfg "$bdir\secpol.inf" /quiet
 
     # 2. Advanced Audit Policy
-    auditpol.exe /backup /file:"$bdiruditpol.csv"
+    auditpol.exe /backup /file:"$bdir\auditpol.csv"
 
     # 3. Critical Registry Hives (HKLM\SOFTWARE, HKLM\SYSTEM, HKLM\SECURITY)
-    reg.exe export "HKLM\SOFTWARE\Policies" "$bdireg_policies.reg" /y 2>$null
-    reg.exe export "HKLM\SYSTEM\CurrentControlSet\Control\Lsa" "$bdireg_lsa.reg" /y 2>$null
-    reg.exe export "HKLM\SYSTEM\CurrentControlSet\Services\LanmanServer\Parameters" "$bdireg_lanmanserver.reg" /y 2>$null
-    reg.exe export "HKLM\SYSTEM\CurrentControlSet\Services\LanmanWorkstation\Parameters" "$bdireg_lanmanworkstation.reg" /y 2>$null
-    reg.exe export "HKLM\SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL" "$bdireg_schannel.reg" /y 2>$null
-    reg.exe export "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies" "$bdireg_win_policies.reg" /y 2>$null
+    reg.exe export "HKLM\SOFTWARE\Policies" "$bdir\reg_policies.reg" /y 2>$null
+    reg.exe export "HKLM\SYSTEM\CurrentControlSet\Control\Lsa" "$bdir\reg_lsa.reg" /y 2>$null
+    reg.exe export "HKLM\SYSTEM\CurrentControlSet\Services\LanmanServer\Parameters" "$bdir\reg_lanmanserver.reg" /y 2>$null
+    reg.exe export "HKLM\SYSTEM\CurrentControlSet\Services\LanmanWorkstation\Parameters" "$bdir\reg_lanmanworkstation.reg" /y 2>$null
+    reg.exe export "HKLM\SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL" "$bdir\reg_schannel.reg" /y 2>$null
+    reg.exe export "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies" "$bdir\reg_win_policies.reg" /y 2>$null
 
     # 4. Windows Defender Firewall configuration
-    netsh.exe advfirewall export "$bdirirewall.wfw"
+    netsh.exe advfirewall export "$bdir\firewall.wfw"
 
     # 5. Services baseline state
     Get-Service | Select-Object Name, DisplayName, Status, StartType | ConvertTo-Json -Depth 2 | Out-File -FilePath "$bdir\services.json" -Encoding utf8

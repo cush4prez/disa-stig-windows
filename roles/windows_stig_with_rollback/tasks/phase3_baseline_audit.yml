@@ -1,18 +1,27 @@
 ---
+# cSpell:ignore DISA SCC XCCDF
 # Phase 3: Baseline Windows STIG Audit (via DISA SCC + Native Ansible XML Parsing on Controller)
 
 - name: Normalize selected rules list
   ansible.builtin.set_fact:
     windows_stig_with_rollback_stig_rules_to_apply: >-
-      {%- set raw = windows_stig_with_rollback_stig_rules_to_apply | default([]) -%}
-      {%- if raw is string -%}
-        {{ raw.replace('
-', ',').split(',') | map('trim') | reject('equalto', '') | list }}
-      {%- elif raw is iterable -%}
-        {{ raw | map('trim') | reject('equalto', '') | list }}
-      {%- else -%}
-        []
-      {%- endif -%}
+      {{
+        (windows_stig_with_rollback_stig_rules_to_apply
+          | replace('\n', ',')
+          | replace('\r', '')
+          | split(',')
+          | map('trim')
+          | select
+          | list)
+        if (windows_stig_with_rollback_stig_rules_to_apply is string)
+        else
+        ((windows_stig_with_rollback_stig_rules_to_apply
+          | map('trim')
+          | select
+          | list)
+         if (windows_stig_with_rollback_stig_rules_to_apply is iterable)
+         else [])
+      }}
 
 - name: Determine if selective mode is active
   ansible.builtin.set_fact:
@@ -21,15 +30,15 @@
 - name: Verify DISA SCC executable exists
   ansible.windows.win_stat:
     path: "{{ windows_stig_with_rollback_scc_executable }}"
-  register: _win_scc_check
+  register: windows_stig_with_rollback_scc_check
 
 - name: Set default baseline score if SCC is unavailable
   ansible.builtin.set_fact:
     windows_stig_with_rollback_baseline_score: "0.0"
-  when: not _win_scc_check.stat.exists
+  when: not windows_stig_with_rollback_scc_check.stat.exists
 
 - name: Run DISA SCC baseline scan and parse natively on controller
-  when: _win_scc_check.stat.exists
+  when: windows_stig_with_rollback_scc_check.stat.exists
   block:
     - name: Execute DISA SCC baseline scan
       ansible.windows.win_command: >
@@ -37,7 +46,7 @@
         -u "{{ windows_stig_with_rollback_stig_audit_dir }}\baseline_{{ windows_stig_with_rollback_backup_timestamp }}"
         -p "{{ windows_stig_with_rollback_stig_profile_id }}"
         -q
-      register: _win_baseline_scan
+      register: windows_stig_with_rollback_baseline_scan
       failed_when: false
       changed_when: false
 
@@ -46,20 +55,20 @@
         paths: "{{ windows_stig_with_rollback_stig_audit_dir }}\baseline_{{ windows_stig_with_rollback_backup_timestamp }}"
         patterns: "*XCCDF*.xml"
         recurse: true
-      register: _win_baseline_xml_found
+      register: windows_stig_with_rollback_win_baseline_xml_found
 
     - name: Fetch baseline XCCDF XML to controller
       ansible.builtin.fetch:
-        src: "{{ (_win_baseline_xml_found.files | sort(attribute='lastwritetime') | last).path }}"
+        src: "{{ (windows_stig_with_rollback_win_baseline_xml_found.files | sort(attribute='lastwritetime') | last).path }}"
         dest: "/tmp/win_baseline_{{ inventory_hostname }}_{{ windows_stig_with_rollback_backup_timestamp }}.xml"
         flat: true
-      when: _win_baseline_xml_found.matched > 0
+      when: windows_stig_with_rollback_win_baseline_xml_found.matched > 0
 
     - name: Parse baseline score natively on controller
       ansible.builtin.include_tasks: parse_oscap_score.yml
       vars:
         oscap_xml_file: "/tmp/win_baseline_{{ inventory_hostname }}_{{ windows_stig_with_rollback_backup_timestamp }}.xml"
-      when: _win_baseline_xml_found.matched > 0
+      when: windows_stig_with_rollback_win_baseline_xml_found.matched > 0
 
     - name: Filter baseline results for selective mode natively on controller
       ansible.builtin.include_tasks: filter_audit_results.yml
@@ -67,7 +76,7 @@
         oscap_xml_file: "/tmp/win_baseline_{{ inventory_hostname }}_{{ windows_stig_with_rollback_backup_timestamp }}.xml"
         stig_rules_to_filter: "{{ windows_stig_with_rollback_stig_rules_to_apply }}"
       when:
-        - _win_baseline_xml_found.matched > 0
+        - windows_stig_with_rollback_win_baseline_xml_found.matched > 0
         - windows_stig_with_rollback_selective_mode
 
     - name: Store baseline score and failed rules

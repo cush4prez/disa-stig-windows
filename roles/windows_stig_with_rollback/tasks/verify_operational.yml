@@ -9,7 +9,7 @@
 
 - name: Test basic Windows connectivity (win_ping)
   ansible.windows.win_ping:
-  register: _win_ping_check
+  register: windows_stig_with_rollback_win_ping_check
   failed_when: false
 
 - name: Record failure if win_ping failed
@@ -17,13 +17,13 @@
     windows_stig_with_rollback_system_is_operable: false
     windows_stig_with_rollback_operational_failures: >-
       {{ windows_stig_with_rollback_operational_failures + ['Windows host failed win_ping responsiveness check'] }}
-  when: _win_ping_check.failed | default(false)
+  when: windows_stig_with_rollback_win_ping_check.failed | default(false)
 
 - name: Verify critical Windows services are running
   ansible.windows.win_service_info:
     name: "{{ item }}"
   loop: "{{ windows_stig_with_rollback_critical_services | default(['WinRM', 'EventLog', 'BFE', 'MpsSvc']) }}"
-  register: _win_services_check
+  register: windows_stig_with_rollback_win_services_check
   failed_when: false
 
 - name: Record failure for any stopped critical Windows service
@@ -34,7 +34,7 @@
         windows_stig_with_rollback_operational_failures +
         ['Critical Windows service not running: ' ~ item.item]
       }}
-  loop: "{{ _win_services_check.results }}"
+  loop: "{{ windows_stig_with_rollback_win_services_check.results }}"
   when:
     - (item.services | default([]) | length == 0) or
       (item.services[0].state | default('stopped') != 'running')
@@ -43,7 +43,7 @@
   ansible.windows.win_file:
     path: 'C:\stig_work\.operational_write_test'
     state: touch
-  register: _win_disk_check
+  register: windows_stig_with_rollback_win_disk_check
   failed_when: false
 
 - name: Remove temporary write test file
@@ -57,4 +57,4 @@
     windows_stig_with_rollback_system_is_operable: false
     windows_stig_with_rollback_operational_failures: >-
       {{ windows_stig_with_rollback_operational_failures + ['C:\ drive is not writable'] }}
-  when: _win_disk_check.failed | default(false)
+  when: windows_stig_with_rollback_win_disk_check.failed | default(false)
